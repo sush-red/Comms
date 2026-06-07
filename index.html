@@ -23,28 +23,35 @@
     <script src="/socket.io/socket.io.js"></script>
     
     <script>
-      const socket = io(); // Connect to the server
+  const socket = io();
 
-      const form = document.getElementById('form');
-      const input = document.getElementById('input');
-      const messages = document.getElementById('messages');
+  // 1. Prompt for username on load
+  let username = prompt("Please enter your name:");
+  if (!username) username = "Anonymous";
 
-      // 1. When the user clicks "Send"
-      form.addEventListener('submit', function(e) {
-        e.preventDefault(); // Prevent the page from refreshing
-        if (input.value) {
-          socket.emit('chat message', input.value); // Send message to server
-          input.value = ''; // Clear the input box
-        }
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  const messages = document.getElementById('messages');
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    if (input.value) {
+      // 2. Send an object containing both username and message
+      socket.emit('chat message', { 
+        user: username, 
+        text: input.value 
       });
+      input.value = '';
+    }
+  });
 
-      // 2. When the browser receives a message from the server
-      socket.on('chat message', function(msg) {
-        const item = document.createElement('li'); // Create a new list item
-        item.textContent = msg; // Put the message text inside it
-        messages.appendChild(item); // Add it to the screen
-        window.scrollTo(0, document.body.scrollHeight); // Auto-scroll to bottom
-      });
-    </script>
+  socket.on('chat message', function(data) {
+    const item = document.createElement('li');
+    // 3. Display as "Name: Message"
+    item.textContent = `${data.user}: ${data.text}`;
+    messages.appendChild(item);
+    window.scrollTo(0, document.body.scrollHeight);
+  });
+</script>
   </body>
 </html>
