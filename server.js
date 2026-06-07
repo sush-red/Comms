@@ -10,8 +10,16 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
 
-// Simulate a database using Mac's memory
+// Simulate a database for Messages
 const databaseSimulator = {
+    'General': [],
+    'Management': [],
+    'Engineering': [],
+    'Scrum-Daily': []
+};
+
+// NEW: Simulate an active memory state for Online Users
+const roomUsers = {
     'General': [],
     'Management': [],
     'Engineering': [],
@@ -21,20 +29,43 @@ const databaseSimulator = {
 io.on('connection', (socket) => {
     console.log('A user connected!');
 
-    socket.on('join room', (roomToJoin) => {
+    // UPGRADED: Join room now expects an object with {room, username}
+    socket.on('join room', (data) => {
+        const roomToJoin = data.room;
+        const username = data.username;
+
+        // Attach user info to the socket itself for tracking
+        socket.username = username;
+        socket.currentRoom = roomToJoin;
+
+        // Clean up old rooms
         Array.from(socket.rooms).forEach(room => {
-            if (room !== socket.id) socket.leave(room);
+            if (room !== socket.id) {
+                socket.leave(room);
+                // Remove user from the old room's active list
+                if (roomUsers[room]) {
+                    roomUsers[room] = roomUsers[room].filter(u => u !== username);
+                    io.to(room).emit('room users', roomUsers[room]);
+                }
+            }
         });
         
         socket.join(roomToJoin);
-        console.log(`User joined room: ${roomToJoin}`);
 
+        // Add user to the new room's active list
+        if (roomUsers[roomToJoin] && username !== "Anonymous") {
+            if (!roomUsers[roomToJoin].includes(username)) {
+                roomUsers[roomToJoin].push(username);
+            }
+        }
+
+        // Send history and the updated live user list
         socket.emit('chat history', databaseSimulator[roomToJoin]);
+        io.to(roomToJoin).emit('room users', roomUsers[roomToJoin]);
     });
 
     socket.on('chat message', (data) => {
         data.id = Math.random().toString(36).substr(2, 9);
-        // UPGRADE: We now store empty ARRAYS instead of numbers to hold usernames
         data.reactions = { '👍': [], '👎': [], '❤️': [], '✅': [], '👀': [] };
         
         if (databaseSimulator[data.room]) {
@@ -48,20 +79,15 @@ io.on('connection', (socket) => {
         if (roomHistory) {
             const message = roomHistory.find(msg => msg.id === reactionData.msgId);
             if (message) {
-                // Get the array of users who clicked this specific emoji
                 const usersArray = message.reactions[reactionData.emoji];
-                
-                // Check if the user who clicked is already in the array
                 const userIndex = usersArray.indexOf(reactionData.username);
 
-                // TOGGLE LOGIC: If they aren't in the list, add them. If they are, remove them.
                 if (userIndex === -1) {
                     usersArray.push(reactionData.username);
                 } else {
                     usersArray.splice(userIndex, 1);
                 }
                 
-                // Broadcast the updated array of users to everyone
                 io.to(reactionData.roomId).emit('update reaction', {
                     msgId: reactionData.msgId,
                     emoji: reactionData.emoji,
@@ -71,7 +97,12 @@ io.on('connection', (socket) => {
         }
     });
 
+    // NEW: Handle user closing the tab
     socket.on('disconnect', () => {
+        if (socket.currentRoom && socket.username) {
+            roomUsers[socket.currentRoom] = roomUsers[socket.currentRoom].filter(u => u !== socket.username);
+            io.to(socket.currentRoom).emit('room users', roomUsers[socket.currentRoom]);
+        }
         console.log('A user disconnected');
     });
 });

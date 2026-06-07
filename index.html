@@ -19,7 +19,7 @@
     .channel-item { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #34495e; transition: background 0.2s; }
     .channel-item:hover, .channel-item.active { background-color: #34495e; border-left: 4px solid #3498db; }
     
-    #main-chat { flex-grow: 1; display: flex; flex-direction: column; background-color: white; }
+    #main-chat { flex-grow: 1; display: flex; flex-direction: column; background-color: white; position: relative; }
     #chat-header { padding: 20px; border-bottom: 1px solid #eee; font-size: 1.2rem; font-weight: bold; background: #fff; }
     #messages { list-style-type: none; margin: 0; padding: 20px; flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
     
@@ -28,7 +28,6 @@
     .message-bubble { background: #ecf0f1; padding: 10px 15px; border-radius: 15px; max-width: 70%; align-self: flex-start; }
     .message-bubble.mentioned { background: #ffeaa7; border: 1px solid #fdcb6e; font-weight: bold; }
     
-    /* Reaction Button Styles */
     .reaction-bar { display: flex; gap: 5px; margin-top: 5px; min-height: 24px; }
     .reaction-btn { position: relative; background: none; border: 1px solid #ddd; border-radius: 12px; padding: 2px 6px; font-size: 0.8rem; cursor: pointer; background: #fff; display: none; }
     .reaction-btn.has-reactions { display: inline-block; background: #e1f5fe; border-color: #81d4fa; }
@@ -37,17 +36,23 @@
     .reaction-btn.has-reactions:hover { background: #b3e5fc; }
     .reaction-count { font-size: 0.75rem; color: #555; margin-left: 3px; font-weight: bold;}
 
-    /* NEW: Custom Tooltip Styles */
     .reaction-tooltip { visibility: hidden; background-color: #2c3e50; color: #fff; text-align: left; padding: 8px 12px; border-radius: 6px; position: absolute; z-index: 10; bottom: 125%; left: 50%; transform: translateX(-50%); opacity: 0; transition: opacity 0.2s; font-size: 0.8rem; white-space: nowrap; box-shadow: 0px 4px 10px rgba(0,0,0,0.2); pointer-events: none; }
     .reaction-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #2c3e50 transparent transparent transparent; }
     .reaction-btn:hover .reaction-tooltip { visibility: visible; opacity: 1; }
     .tooltip-row { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
     .tooltip-row:last-child { border-bottom: none; }
 
-    #form { display: flex; padding: 20px; background: #fff; border-top: 1px solid #eee; }
+    #form-container { position: relative; padding: 20px; background: #fff; border-top: 1px solid #eee; display: flex; flex-direction: column;}
+    #form { display: flex; width: 100%; }
     #input { flex-grow: 1; padding: 12px 20px; border: 1px solid #ddd; border-radius: 25px; outline: none; font-size: 1rem; }
     #input:focus { border-color: #3498db; }
     #form > button { background: #3498db; color: white; border: none; padding: 0 25px; margin-left: 10px; border-radius: 25px; cursor: pointer; font-size: 1rem; font-weight: bold; }
+
+    #mention-dropdown { position: absolute; bottom: 100%; left: 20px; background: white; border: 1px solid #eee; border-radius: 8px; box-shadow: 0 -4px 15px rgba(0,0,0,0.1); width: 250px; max-height: 200px; overflow-y: auto; display: none; z-index: 100; margin-bottom: 5px; padding: 5px 0;}
+    .mention-item { padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 0.95rem; color: #2c3e50; }
+    .mention-item.active { background: #3498db; color: white; border-radius: 6px; margin: 0 5px; }
+    .mention-avatar { background: #ecf0f1; color: #2c3e50; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; flex-shrink: 0;}
+    .mention-item.active .mention-avatar { background: white; color: #3498db; }
   </style>
 </head>
 <body>
@@ -73,10 +78,14 @@
   <div id="main-chat">
     <div id="chat-header"># General</div>
     <ul id="messages"></ul>
-    <form id="form" action="">
-      <input id="input" autocomplete="off" placeholder="Message channel..." />
-      <button>Send</button>
-    </form>
+    
+    <div id="form-container">
+      <div id="mention-dropdown"></div>
+      <form id="form" action="">
+        <input id="input" autocomplete="off" placeholder="Message channel..." />
+        <button>Send</button>
+      </form>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -84,6 +93,12 @@
     const socket = io();
     let username = "Anonymous";
     let currentRoom = "General";
+    
+    let availableUsers = [];
+    let filteredUsers = [];
+    let selectedMentionIndex = 0;
+    // FIX 1: Track the true cursor position constantly
+    let savedCursorPos = 0; 
 
     const loginOverlay = document.getElementById('login-overlay');
     const usernameInput = document.getElementById('username-input');
@@ -93,6 +108,7 @@
     const messages = document.getElementById('messages');
     const chatHeader = document.getElementById('chat-header');
     const channelItems = document.querySelectorAll('.channel-item');
+    const mentionDropdown = document.getElementById('mention-dropdown');
 
     joinBtn.addEventListener('click', () => {
       const enteredName = usernameInput.value.trim();
@@ -102,7 +118,137 @@
         if (Notification.permission !== "granted" && Notification.permission !== "denied") {
           Notification.requestPermission();
         }
-        socket.emit('join room', currentRoom);
+        socket.emit('join room', { room: currentRoom, username: username });
+      }
+    });
+
+    socket.on('room users', (users) => {
+      availableUsers = users.filter(u => u !== username);
+    });
+
+    // Update saved position whenever typing or clicking
+    input.addEventListener('keyup', () => { savedCursorPos = input.selectionStart; });
+    input.addEventListener('click', () => { savedCursorPos = input.selectionStart; });
+
+    input.addEventListener('input', () => {
+      savedCursorPos = input.selectionStart;
+      const val = input.value;
+      const textBeforeCursor = val.substring(0, savedCursorPos);
+
+      const match = textBeforeCursor.match(/(?:^|\s)@([a-zA-Z0-9_]*)$/);
+
+      if (match) {
+        const searchTerm = match[1].toLowerCase();
+        filteredUsers = availableUsers.filter(u => u.toLowerCase().startsWith(searchTerm));
+
+        if (filteredUsers.length > 0) {
+          buildMentionDropdown(); // Only build the DOM once
+        } else {
+          closeMentionDropdown();
+        }
+      } else {
+        closeMentionDropdown();
+      }
+    });
+
+    // FIX 2: Separate the rendering of HTML from the highlighting
+    function buildMentionDropdown() {
+      mentionDropdown.innerHTML = '';
+      mentionDropdown.style.display = 'block';
+
+      if (selectedMentionIndex >= filteredUsers.length) selectedMentionIndex = 0;
+
+      filteredUsers.forEach((user, index) => {
+        const item = document.createElement('div');
+        item.className = 'mention-item';
+        
+        const avatar = document.createElement('div');
+        avatar.className = 'mention-avatar';
+        avatar.textContent = user.charAt(0).toUpperCase();
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = user;
+
+        item.appendChild(avatar);
+        item.appendChild(nameSpan);
+
+        // Prevent input blur in Chrome
+        item.addEventListener('mousedown', (e) => { e.preventDefault(); });
+        
+        // Execute insert
+        item.addEventListener('click', () => { insertMention(user); });
+
+        item.addEventListener('mouseenter', () => {
+          selectedMentionIndex = index;
+          updateActiveHighlight(); // Just update highlight, don't rebuild
+        });
+
+        mentionDropdown.appendChild(item);
+      });
+      
+      updateActiveHighlight(); // Initial highlight
+    }
+
+    // FIX 2: Updates the blue background and smoothly scrolls the list
+    function updateActiveHighlight() {
+      const items = mentionDropdown.querySelectorAll('.mention-item');
+      items.forEach((item, index) => {
+        if (index === selectedMentionIndex) {
+          item.classList.add('active');
+          // This keeps the selected item visible even if the list is long
+          item.scrollIntoView({ block: 'nearest' });
+        } else {
+          item.classList.remove('active');
+        }
+      });
+    }
+
+    function closeMentionDropdown() {
+      mentionDropdown.style.display = 'none';
+      filteredUsers = [];
+      selectedMentionIndex = 0;
+    }
+
+    function insertMention(userToTag) {
+      const val = input.value;
+      // FIX 1: Use the reliably saved cursor position, ignoring Chrome's glitches
+      const cursor = savedCursorPos; 
+      const textBeforeCursor = val.substring(0, cursor);
+      const textAfterCursor = val.substring(cursor);
+
+      const match = textBeforeCursor.match(/(?:^|\s)@([a-zA-Z0-9_]*)$/);
+      if (match) {
+        const startPos = match.index + (match[0].startsWith(' ') ? 1 : 0);
+        const newText = textBeforeCursor.substring(0, startPos) + `@${userToTag} ` + textAfterCursor;
+        input.value = newText;
+        
+        // Restore focus and put cursor at the end of the newly inserted tag
+        input.focus();
+        const newPos = startPos + userToTag.length + 2;
+        input.selectionStart = input.selectionEnd = newPos;
+        savedCursorPos = newPos; // Update saved position immediately
+      }
+      closeMentionDropdown();
+    }
+
+    input.addEventListener('keydown', (e) => {
+      if (mentionDropdown.style.display === 'block') {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          selectedMentionIndex = (selectedMentionIndex + 1) % filteredUsers.length;
+          updateActiveHighlight(); // Just highlight and scroll, no re-rendering!
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          selectedMentionIndex = (selectedMentionIndex - 1 + filteredUsers.length) % filteredUsers.length;
+          updateActiveHighlight();
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          if (filteredUsers[selectedMentionIndex]) {
+            insertMention(filteredUsers[selectedMentionIndex]);
+          }
+        } else if (e.key === 'Escape') {
+          closeMentionDropdown();
+        }
       }
     });
 
@@ -160,21 +306,19 @@
         const usersArray = data.reactions && data.reactions[emoji] ? data.reactions[emoji] : [];
         const count = usersArray.length;
         
-        // NEW: Create the custom tooltip element
         const tooltip = document.createElement('div');
         tooltip.className = 'reaction-tooltip';
         tooltip.id = `tooltip-${messageId}-${emoji}`;
         
         if (count > 0) {
           btn.classList.add('has-reactions');
-          // Map the users array into vertical div rows
           tooltip.innerHTML = usersArray.map(u => `<div class="tooltip-row">${u}</div>`).join('');
         } else {
           tooltip.innerHTML = `<div class="tooltip-row">React with ${emoji}</div>`;
         }
         
         btn.innerHTML = `${emoji} <span class="reaction-count" id="count-${messageId}-${emoji}">${count > 0 ? count : ''}</span>`;
-        btn.appendChild(tooltip); // Attach tooltip directly inside the button
+        btn.appendChild(tooltip); 
         
         btn.addEventListener('click', () => {
           socket.emit('add reaction', {
@@ -200,16 +344,17 @@
         const newRoom = this.getAttribute('data-room');
         chatHeader.textContent = `# ${newRoom}`;
         messages.innerHTML = ''; 
-        socket.emit('join room', newRoom); 
+        socket.emit('join room', { room: newRoom, username: username }); 
         currentRoom = newRoom;
       });
     });
 
     form.addEventListener('submit', function(e) {
       e.preventDefault();
-      if (input.value) {
+      if (mentionDropdown.style.display !== 'block' && input.value) {
         socket.emit('chat message', { user: username, text: input.value, room: currentRoom });
         input.value = '';
+        closeMentionDropdown();
       }
     });
 
@@ -223,7 +368,6 @@
       });
     });
 
-    // UPGRADED: Update the custom tooltip instead of the native title
     socket.on('update reaction', function(data) {
       const btn = document.getElementById(`btn-${data.msgId}-${data.emoji}`);
       const countSpan = document.getElementById(`count-${data.msgId}-${data.emoji}`);
@@ -235,7 +379,6 @@
         
         if (count > 0) {
           btn.classList.add('has-reactions');
-          // Update the tooltip with clean vertical rows
           tooltip.innerHTML = data.users.map(u => `<div class="tooltip-row">${u}</div>`).join('');
         } else {
           btn.classList.remove('has-reactions');
