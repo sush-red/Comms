@@ -5,7 +5,6 @@
   <style>
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; background-color: #f4f7f6; }
     
-    /* NEW: Login Overlay Styles */
     #login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #2c3e50; display: flex; justify-content: center; align-items: center; z-index: 1000; }
     .login-box { background: white; padding: 40px; border-radius: 10px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); width: 300px; }
     .login-box h2 { margin-top: 0; color: #2c3e50; font-size: 1.5rem; margin-bottom: 20px;}
@@ -14,25 +13,37 @@
     .login-box button { background: #3498db; color: white; border: none; padding: 12px; width: 100%; border-radius: 5px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
     .login-box button:hover { background: #2980b9; }
 
-    /* Sidebar Styles */
     #sidebar { width: 250px; background-color: #2c3e50; color: white; display: flex; flex-direction: column; }
     .sidebar-header { padding: 20px; font-size: 1.2rem; font-weight: bold; border-bottom: 1px solid #1a252f; }
     .channel-list { list-style: none; padding: 0; margin: 0; flex-grow: 1; }
     .channel-item { padding: 15px 20px; cursor: pointer; border-bottom: 1px solid #34495e; transition: background 0.2s; }
     .channel-item:hover, .channel-item.active { background-color: #34495e; border-left: 4px solid #3498db; }
     
-    /* Main Chat Area Styles */
     #main-chat { flex-grow: 1; display: flex; flex-direction: column; background-color: white; }
     #chat-header { padding: 20px; border-bottom: 1px solid #eee; font-size: 1.2rem; font-weight: bold; background: #fff; }
     #messages { list-style-type: none; margin: 0; padding: 20px; flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
     
-    /* Message Bubble Styles */
     .message-container { display: flex; flex-direction: column; }
     .message-sender { font-size: 0.8rem; color: #7f8c8d; margin-bottom: 2px; font-weight: bold; }
     .message-bubble { background: #ecf0f1; padding: 10px 15px; border-radius: 15px; max-width: 70%; align-self: flex-start; }
     .message-bubble.mentioned { background: #ffeaa7; border: 1px solid #fdcb6e; font-weight: bold; }
     
-    /* Input Area Styles */
+    /* Reaction Button Styles */
+    .reaction-bar { display: flex; gap: 5px; margin-top: 5px; min-height: 24px; }
+    .reaction-btn { position: relative; background: none; border: 1px solid #ddd; border-radius: 12px; padding: 2px 6px; font-size: 0.8rem; cursor: pointer; background: #fff; display: none; }
+    .reaction-btn.has-reactions { display: inline-block; background: #e1f5fe; border-color: #81d4fa; }
+    .message-container:hover .reaction-btn { display: inline-block; }
+    .reaction-btn:hover { background: #eee; }
+    .reaction-btn.has-reactions:hover { background: #b3e5fc; }
+    .reaction-count { font-size: 0.75rem; color: #555; margin-left: 3px; font-weight: bold;}
+
+    /* NEW: Custom Tooltip Styles */
+    .reaction-tooltip { visibility: hidden; background-color: #2c3e50; color: #fff; text-align: left; padding: 8px 12px; border-radius: 6px; position: absolute; z-index: 10; bottom: 125%; left: 50%; transform: translateX(-50%); opacity: 0; transition: opacity 0.2s; font-size: 0.8rem; white-space: nowrap; box-shadow: 0px 4px 10px rgba(0,0,0,0.2); pointer-events: none; }
+    .reaction-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #2c3e50 transparent transparent transparent; }
+    .reaction-btn:hover .reaction-tooltip { visibility: visible; opacity: 1; }
+    .tooltip-row { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .tooltip-row:last-child { border-bottom: none; }
+
     #form { display: flex; padding: 20px; background: #fff; border-top: 1px solid #eee; }
     #input { flex-grow: 1; padding: 12px 20px; border: 1px solid #ddd; border-radius: 25px; outline: none; font-size: 1rem; }
     #input:focus { border-color: #3498db; }
@@ -74,7 +85,6 @@
     let username = "Anonymous";
     let currentRoom = "General";
 
-    // UI Elements
     const loginOverlay = document.getElementById('login-overlay');
     const usernameInput = document.getElementById('username-input');
     const joinBtn = document.getElementById('join-btn');
@@ -84,44 +94,37 @@
     const chatHeader = document.getElementById('chat-header');
     const channelItems = document.querySelectorAll('.channel-item');
 
-    // NEW: Handle Login Button Click
     joinBtn.addEventListener('click', () => {
       const enteredName = usernameInput.value.trim();
       if (enteredName !== "") {
         username = enteredName;
-        loginOverlay.style.display = 'none'; // Hide the welcome screen
-        
-        // Request notifications safely AFTER user interaction
+        loginOverlay.style.display = 'none'; 
         if (Notification.permission !== "granted" && Notification.permission !== "denied") {
           Notification.requestPermission();
         }
-
-        // Connect to the default room
         socket.emit('join room', currentRoom);
       }
     });
 
-    // Audio Generator
     function playDing() {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const oscillator = audioCtx.createOscillator();
       const gainNode = audioCtx.createGain();
-      
       oscillator.type = 'sine';
       oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
       gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); 
-      
       oscillator.connect(gainNode);
       gainNode.connect(audioCtx.destination);
-      
       oscillator.start();
       oscillator.stop(audioCtx.currentTime + 0.15); 
     }
 
-    // Display Message Logic
     function displayMessage(data) {
       const container = document.createElement('li');
       container.className = 'message-container';
+      
+      const messageId = data.id || Math.random().toString(36).substr(2, 9);
+      container.id = `msg-${messageId}`;
       
       const sender = document.createElement('div');
       sender.className = 'message-sender';
@@ -131,10 +134,8 @@
       bubble.className = 'message-bubble';
       bubble.textContent = data.text;
 
-      // Tagging Logic
       if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
         bubble.classList.add('mentioned'); 
-        
         if (data.user !== username) {
           playDing();
           if (document.hidden && Notification.permission === "granted") {
@@ -145,26 +146,65 @@
       
       container.appendChild(sender);
       container.appendChild(bubble);
+
+      const reactionBar = document.createElement('div');
+      reactionBar.className = 'reaction-bar';
+      
+      const emojis = ['👍', '👎', '❤️', '✅', '👀'];
+      
+      emojis.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.className = 'reaction-btn';
+        btn.id = `btn-${messageId}-${emoji}`; 
+        
+        const usersArray = data.reactions && data.reactions[emoji] ? data.reactions[emoji] : [];
+        const count = usersArray.length;
+        
+        // NEW: Create the custom tooltip element
+        const tooltip = document.createElement('div');
+        tooltip.className = 'reaction-tooltip';
+        tooltip.id = `tooltip-${messageId}-${emoji}`;
+        
+        if (count > 0) {
+          btn.classList.add('has-reactions');
+          // Map the users array into vertical div rows
+          tooltip.innerHTML = usersArray.map(u => `<div class="tooltip-row">${u}</div>`).join('');
+        } else {
+          tooltip.innerHTML = `<div class="tooltip-row">React with ${emoji}</div>`;
+        }
+        
+        btn.innerHTML = `${emoji} <span class="reaction-count" id="count-${messageId}-${emoji}">${count > 0 ? count : ''}</span>`;
+        btn.appendChild(tooltip); // Attach tooltip directly inside the button
+        
+        btn.addEventListener('click', () => {
+          socket.emit('add reaction', {
+            roomId: currentRoom,
+            msgId: messageId,
+            emoji: emoji,
+            username: username
+          });
+        });
+        
+        reactionBar.appendChild(btn);
+      });
+
+      container.appendChild(reactionBar);
       messages.appendChild(container);
       messages.scrollTop = messages.scrollHeight;
     }
 
-    // Channel Switching
     channelItems.forEach(item => {
       item.addEventListener('click', function() {
         document.querySelector('.channel-item.active').classList.remove('active');
         this.classList.add('active');
-        
         const newRoom = this.getAttribute('data-room');
         chatHeader.textContent = `# ${newRoom}`;
-        
         messages.innerHTML = ''; 
         socket.emit('join room', newRoom); 
         currentRoom = newRoom;
       });
     });
 
-    // Send Message
     form.addEventListener('submit', function(e) {
       e.preventDefault();
       if (input.value) {
@@ -173,16 +213,35 @@
       }
     });
 
-    // Receive Message
     socket.on('chat message', function(data) {
       displayMessage(data);
     });
 
-    // Load History
     socket.on('chat history', function(historyArray) {
       historyArray.forEach(messageData => {
         displayMessage(messageData);
       });
+    });
+
+    // UPGRADED: Update the custom tooltip instead of the native title
+    socket.on('update reaction', function(data) {
+      const btn = document.getElementById(`btn-${data.msgId}-${data.emoji}`);
+      const countSpan = document.getElementById(`count-${data.msgId}-${data.emoji}`);
+      const tooltip = document.getElementById(`tooltip-${data.msgId}-${data.emoji}`);
+      
+      if (btn && countSpan && tooltip) {
+        const count = data.users.length;
+        countSpan.textContent = count > 0 ? count : '';
+        
+        if (count > 0) {
+          btn.classList.add('has-reactions');
+          // Update the tooltip with clean vertical rows
+          tooltip.innerHTML = data.users.map(u => `<div class="tooltip-row">${u}</div>`).join('');
+        } else {
+          btn.classList.remove('has-reactions');
+          tooltip.innerHTML = `<div class="tooltip-row">React with ${data.emoji}</div>`;
+        }
+      }
     });
   </script>
 </body>

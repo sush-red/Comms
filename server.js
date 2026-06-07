@@ -10,7 +10,7 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
 
-// ADDITION 1: Simulate a database using Mac's memory
+// Simulate a database using Mac's memory
 const databaseSimulator = {
     'General': [],
     'Management': [],
@@ -29,16 +29,46 @@ io.on('connection', (socket) => {
         socket.join(roomToJoin);
         console.log(`User joined room: ${roomToJoin}`);
 
-        // ADDITION 2: Instantly send the room's history to the user who just joined
         socket.emit('chat history', databaseSimulator[roomToJoin]);
     });
 
     socket.on('chat message', (data) => {
-        // ADDITION 3: Save the message to our "database" before broadcasting
+        data.id = Math.random().toString(36).substr(2, 9);
+        // UPGRADE: We now store empty ARRAYS instead of numbers to hold usernames
+        data.reactions = { '👍': [], '👎': [], '❤️': [], '✅': [], '👀': [] };
+        
         if (databaseSimulator[data.room]) {
             databaseSimulator[data.room].push(data);
         }
         io.to(data.room).emit('chat message', data);
+    });
+
+    socket.on('add reaction', (reactionData) => {
+        const roomHistory = databaseSimulator[reactionData.roomId];
+        if (roomHistory) {
+            const message = roomHistory.find(msg => msg.id === reactionData.msgId);
+            if (message) {
+                // Get the array of users who clicked this specific emoji
+                const usersArray = message.reactions[reactionData.emoji];
+                
+                // Check if the user who clicked is already in the array
+                const userIndex = usersArray.indexOf(reactionData.username);
+
+                // TOGGLE LOGIC: If they aren't in the list, add them. If they are, remove them.
+                if (userIndex === -1) {
+                    usersArray.push(reactionData.username);
+                } else {
+                    usersArray.splice(userIndex, 1);
+                }
+                
+                // Broadcast the updated array of users to everyone
+                io.to(reactionData.roomId).emit('update reaction', {
+                    msgId: reactionData.msgId,
+                    emoji: reactionData.emoji,
+                    users: message.reactions[reactionData.emoji]
+                });
+            }
+        }
     });
 
     socket.on('disconnect', () => {
