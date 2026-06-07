@@ -10,14 +10,19 @@ const io = new Server(server);
 
 // 3. Define what happens when someone visits the homepage
 app.get('/', (req, res) => {
-    res.send('Fintech Chat Server is Running!');
+    res.sendFile(__dirname + '/index.html');
 });
 
 // 4. Listen for real-time WebSocket connections from employees
 io.on('connection', (socket) => {
     console.log('A user connected!');
 
-    // Listen for when a user closes the app/browser
+    // When the server hears a "chat message" from a user
+    socket.on('chat message', (msg) => {
+        // Broadcast that exact message to EVERYONE connected
+        io.emit('chat message', msg);
+    });
+
     socket.on('disconnect', () => {
         console.log('A user disconnected');
     });

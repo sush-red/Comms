@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Fintech Internal Chat</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding-bottom: 3rem; }
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages li { padding: 0.5rem 1rem; border-bottom: 1px solid #eee; }
+      #messages li:nth-child(odd) { background: #f9f9f9; }
+      #form { background: rgba(0, 0, 0, 0.15); padding: 0.25rem; position: fixed; bottom: 0; width: 100%; display: flex; }
+      #input { border: none; padding: 0 1rem; flex-grow: 1; border-radius: 2rem; margin: 0.25rem; height: 3rem; font-size: 16px; }
+      #input:focus { outline: none; }
+      #form > button { background: #007bff; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: white; cursor: pointer; font-size: 16px; font-weight: bold;}
+    </style>
+  </head>
+  <body>
+    <ul id="messages"></ul>
+    
+    <form id="form" action="">
+      <input id="input" autocomplete="off" placeholder="Type a message..." /><button>Send</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <script>
+      const socket = io(); // Connect to the server
+
+      const form = document.getElementById('form');
+      const input = document.getElementById('input');
+      const messages = document.getElementById('messages');
+
+      // 1. When the user clicks "Send"
+      form.addEventListener('submit', function(e) {
+        e.preventDefault(); // Prevent the page from refreshing
+        if (input.value) {
+          socket.emit('chat message', input.value); // Send message to server
+          input.value = ''; // Clear the input box
+        }
+      });
+
+      // 2. When the browser receives a message from the server
+      socket.on('chat message', function(msg) {
+        const item = document.createElement('li'); // Create a new list item
+        item.textContent = msg; // Put the message text inside it
+        messages.appendChild(item); // Add it to the screen
+        window.scrollTo(0, document.body.scrollHeight); // Auto-scroll to bottom
+      });
+    </script>
+  </body>
+</html>
