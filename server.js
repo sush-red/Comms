@@ -69,7 +69,6 @@ io.on('connection', (socket) => {
 
         db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp DESC LIMIT 50", [roomToJoin], (err, rows) => {
             if (err) return console.error(err);
-            // Filter out messages the user has deleted for themselves
             const history = rows.reverse().map(formatMessageRow).filter(msg => !msg.deleted_for.includes(socket.username));
             socket.emit('chat history', history);
         });
@@ -207,7 +206,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // --- NEW PROFILE EVENTS ---
     socket.on('get profile', (targetUser) => {
         db.get("SELECT username, role, email, contact, status_msg FROM users WHERE username = ?", [targetUser], (err, row) => {
             if (row) {
@@ -217,7 +215,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('update profile', (data) => {
-        // Only allow users to update their own profile
         if (socket.username !== data.username) return;
         
         db.run("UPDATE users SET email = ?, contact = ?, status_msg = ? WHERE username = ?", 

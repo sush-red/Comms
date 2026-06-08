@@ -53,10 +53,10 @@ pinnedBanner.id = 'pinned-banner';
 pinnedBanner.className = 'hidden bg-surface-container border-b border-border-subtle p-2 flex-col gap-1 text-sm z-10 w-full max-h-[150px] overflow-y-auto shadow-sm';
 mainContent.insertBefore(pinnedBanner, header.nextSibling);
 
-// NEW variables for Profile/Members
 const profileOverlay = document.getElementById('profile-overlay');
 const membersOverlay = document.getElementById('members-overlay');
 const membersBtn = document.getElementById('members-btn');
+const selfProfileBtn = document.getElementById('self-profile-btn');
 let currentProfileViewing = null;
 
 joinBtn.addEventListener('click', () => {
@@ -500,22 +500,21 @@ function displayMessage(data, isHistory = false, prepend = false) {
   contentCol.className = isMe ? 'flex flex-col gap-1 items-end' : 'flex flex-col gap-1';
 
   const nameRow = document.createElement('div');
-  nameRow.className = isMe ? 'flex items-baseline gap-2 mr-1' : 'flex items-baseline gap-2 ml-1';
+  nameRow.className = isMe ? 'flex items-center gap-2 mr-1' : 'flex items-center gap-2 ml-1';
+
   const senderName = document.createElement('span');
   senderName.className = 'font-label-md text-label-md text-on-surface cursor-pointer hover:underline';
   senderName.textContent = isMe ? 'You' : data.user;
-  
-  // TRIGGER PROFILE MODAL
   senderName.addEventListener('click', () => fetchAndShowProfile(isMe ? username : data.user));
-  
-  nameRow.appendChild(senderName);
-  contentCol.appendChild(nameRow);
-  
+
   const bubble = document.createElement('div');
   bubble.className = isMe ? 'bg-outgoing-blue text-on-surface p-3 md:p-4 rounded-bubble-outgoing border border-primary/10 relative shadow-sm' : 'bg-surface-container-lowest text-on-surface p-3 md:p-4 rounded-bubble-incoming shadow-ambient border border-border-subtle/50 relative';
   
   if (data.is_deleted) {
       bubble.innerHTML = '<p class="text-on-surface-variant italic font-body-sm flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">block</span> This message was deleted</p>';
+      
+      nameRow.appendChild(senderName);
+      contentCol.appendChild(nameRow);
       contentCol.appendChild(bubble);
   } else {
       if (data.replyTo) {
@@ -559,7 +558,7 @@ function displayMessage(data, isHistory = false, prepend = false) {
       }
 
       const hoverActions = document.createElement('div');
-      hoverActions.className = `absolute -top-5 ${isMe ? 'right-2' : 'left-2'} bg-surface border border-border-subtle rounded-lg shadow-sm flex items-center p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-20`;
+      hoverActions.className = `action-menu flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-surface/50 rounded-md px-1`;
       
       hoverActions.appendChild(createHoverAction('reply', 'Reply', () => setReply(data, data.text ? data.text : (data.file ? `[Attachment: ${data.file.name}]` : 'Message'))));
       
@@ -572,7 +571,15 @@ function displayMessage(data, isHistory = false, prepend = false) {
           hoverActions.appendChild(createHoverAction('delete', 'Delete for everyone', () => socket.emit('delete message', { room: currentRoom, msgId: messageId }), true));
       }
 
-      bubble.appendChild(hoverActions);
+      if (isMe) {
+          nameRow.appendChild(hoverActions); 
+          nameRow.appendChild(senderName);   
+      } else {
+          nameRow.appendChild(senderName);   
+          nameRow.appendChild(hoverActions); 
+      }
+
+      contentCol.appendChild(nameRow);
       contentCol.appendChild(bubble);
       
       const reactionBar = document.createElement('div');
@@ -631,8 +638,10 @@ socket.on('message deleted', (msgId) => {
         if (bubble) {
             bubble.innerHTML = '<p class="text-on-surface-variant italic font-body-sm flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">block</span> This message was deleted</p>';
         }
-        const hoverActions = msgEl.querySelector('.absolute.-top-5');
+        
+        const hoverActions = msgEl.querySelector('.action-menu');
         if (hoverActions) hoverActions.remove();
+        
         const reactionBar = msgEl.querySelector('.min-h-\\[24px\\]');
         if (reactionBar) reactionBar.remove();
     }
@@ -715,8 +724,6 @@ input.addEventListener('input', function() {
         this.style.height = 'auto';
     }
 });
-
-// --- NEW PROFILE & MEMBERS LOGIC ---
 
 function fetchAndShowProfile(targetUsername) {
     currentProfileViewing = targetUsername;
@@ -806,3 +813,9 @@ membersBtn.addEventListener('click', () => {
 
     membersOverlay.style.display = 'flex';
 });
+
+if (selfProfileBtn) {
+    selfProfileBtn.addEventListener('click', () => {
+        fetchAndShowProfile(username);
+    });
+}
