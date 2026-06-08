@@ -53,6 +53,12 @@ pinnedBanner.id = 'pinned-banner';
 pinnedBanner.className = 'hidden bg-surface-container border-b border-border-subtle p-2 flex-col gap-1 text-sm z-10 w-full max-h-[150px] overflow-y-auto shadow-sm';
 mainContent.insertBefore(pinnedBanner, header.nextSibling);
 
+// NEW variables for Profile/Members
+const profileOverlay = document.getElementById('profile-overlay');
+const membersOverlay = document.getElementById('members-overlay');
+const membersBtn = document.getElementById('members-btn');
+let currentProfileViewing = null;
+
 joinBtn.addEventListener('click', () => {
   const enteredName = usernameInput.value.trim();
   if (enteredName !== "") {
@@ -373,9 +379,6 @@ function insertMention(userToTag) {
   closeMentionDropdown();
 }
 
-// ---------------------------------------------
-// FIX: ENTER vs SHIFT+ENTER LOGIC
-// ---------------------------------------------
 function sendMessage() {
   const textVal = input.value.trim();
   if (mentionDropdown.style.display !== 'block' && (textVal !== '' || attachedFileData !== null)) {
@@ -401,13 +404,11 @@ input.addEventListener('keydown', (e) => {
     else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (filteredUsers[selectedMentionIndex]) insertMention(filteredUsers[selectedMentionIndex]); } 
     else if (e.key === 'Escape') closeMentionDropdown();
   } 
-  // Send message on Enter (but drop to new line if Shift is held down)
   else if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
   }
 });
-// ---------------------------------------------
 
 document.getElementById('attach-btn').addEventListener('click', () => { document.getElementById('file-input').click(); });
 window.clearAttachment = function() { attachedFileData = null; document.getElementById('attachment-preview').style.display = 'none'; document.getElementById('file-input').value = ''; };
@@ -487,7 +488,6 @@ function createHoverAction(icon, tooltipText, onClick, isDanger = false) {
 function displayMessage(data, isHistory = false, prepend = false) {
   const container = document.createElement('li');
   const isMe = (data.user === username);
-  // FIX: Swapped self-end for ml-auto to push the container flush right
   container.className = isMe ? 'flex items-end justify-end gap-3 max-w-[85%] ml-auto group' : 'flex items-end gap-3 max-w-[85%] group';
   const messageId = data.id || Math.random().toString(36).substr(2, 9);
   container.id = `msg-${messageId}`;
@@ -504,7 +504,10 @@ function displayMessage(data, isHistory = false, prepend = false) {
   const senderName = document.createElement('span');
   senderName.className = 'font-label-md text-label-md text-on-surface cursor-pointer hover:underline';
   senderName.textContent = isMe ? 'You' : data.user;
-  if (!isMe) senderName.addEventListener('click', () => openDirectMessage(data.user));
+  
+  // TRIGGER PROFILE MODAL
+  senderName.addEventListener('click', () => fetchAndShowProfile(isMe ? username : data.user));
+  
   nameRow.appendChild(senderName);
   contentCol.appendChild(nameRow);
   
@@ -532,7 +535,7 @@ function displayMessage(data, isHistory = false, prepend = false) {
       
       if (data.text) {
           const textDiv = document.createElement('p');
-          textDiv.className = 'font-body-md text-body-md whitespace-pre-wrap'; // Preserves newlines
+          textDiv.className = 'font-body-md text-body-md whitespace-pre-wrap'; 
           if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
             bubble.classList.add('ring-2', 'ring-mention-gold'); 
             if (!isMe && !isHistory) processMentionAlert(data);
@@ -555,7 +558,6 @@ function displayMessage(data, isHistory = false, prepend = false) {
           }
       }
 
-      // FIX: Keep actions safely anchored inside the bubble bounds using left-2 / right-2
       const hoverActions = document.createElement('div');
       hoverActions.className = `absolute -top-5 ${isMe ? 'right-2' : 'left-2'} bg-surface border border-border-subtle rounded-lg shadow-sm flex items-center p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-20`;
       
@@ -646,7 +648,6 @@ socket.on('message deleted for me', (msgId) => {
     }
 });
 
-// FIX: Syncs tooltip text dynamically when a pin action completes
 socket.on('update pin', (data) => {
     if (data.isPinned) {
         pinnedMessagesMap.set(data.msgId, data.msgData);
@@ -655,7 +656,6 @@ socket.on('update pin', (data) => {
     }
     updatePinnedBanner();
 
-    // Finds the specific message in the UI and flips its tooltip
     const msgEl = document.getElementById(`msg-${data.msgId}`);
     if (msgEl) {
         const pinIcons = msgEl.querySelectorAll('.material-symbols-outlined');
@@ -707,13 +707,102 @@ socket.on('update reaction', function(data) {
 
 });
 
-// Auto-resize the textarea as the user types
 input.addEventListener('input', function() {
-    this.style.height = 'auto'; // Reset height to recalculate
-    this.style.height = (this.scrollHeight) + 'px'; // Set to exact scroll height
+    this.style.height = 'auto'; 
+    this.style.height = (this.scrollHeight) + 'px'; 
     
-    // Reset back to normal if the box is empty
     if (this.value === '') {
         this.style.height = 'auto';
     }
+});
+
+// --- NEW PROFILE & MEMBERS LOGIC ---
+
+function fetchAndShowProfile(targetUsername) {
+    currentProfileViewing = targetUsername;
+    socket.emit('get profile', targetUsername);
+}
+
+socket.on('profile data', (data) => {
+    document.getElementById('profile-avatar').textContent = data.username.charAt(0).toUpperCase();
+    document.getElementById('profile-name').textContent = data.username;
+    document.getElementById('profile-role').textContent = data.role === 'user' ? 'Standard User' : data.role;
+    
+    document.getElementById('profile-email').textContent = data.email || 'Not set';
+    document.getElementById('profile-contact').textContent = data.contact || 'Not set';
+    document.getElementById('profile-status-msg').textContent = data.status_msg || 'Available';
+
+    const isOnline = availableUsers.includes(data.username) || data.username === username;
+    const statusContainer = document.getElementById('profile-online-status');
+    const statusDot = document.getElementById('profile-status-dot');
+    const statusText = document.getElementById('profile-status-text');
+
+    if (isOnline) {
+        statusContainer.className = "mt-2 px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 bg-green-100 text-green-700";
+        statusDot.className = "w-2 h-2 rounded-full bg-green-500";
+        statusText.textContent = "Online";
+    } else {
+        statusContainer.className = "mt-2 px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 bg-gray-100 text-gray-600";
+        statusDot.className = "w-2 h-2 rounded-full bg-gray-400";
+        statusText.textContent = "Offline";
+    }
+
+    const actionsContainer = document.getElementById('profile-actions');
+    actionsContainer.innerHTML = ''; 
+
+    if (data.username === username) {
+        actionsContainer.innerHTML = `
+            <button class="w-full bg-surface-container-high text-on-surface py-2 rounded-lg hover:bg-border-subtle transition-colors flex items-center justify-center gap-2 font-bold text-sm">
+                <span class="material-symbols-outlined text-[18px]">settings</span> Settings
+            </button>
+        `;
+    } else {
+        actionsContainer.innerHTML = `
+            <button onclick="messageFromProfile('${data.username}')" class="w-full bg-primary-container text-on-primary py-2 rounded-lg hover:bg-primary transition-colors flex items-center justify-center gap-2 font-bold text-sm shadow-sm">
+                <span class="material-symbols-outlined text-[18px]">chat</span> Message
+            </button>
+        `;
+    }
+
+    profileOverlay.style.display = 'flex';
+});
+
+window.messageFromProfile = function(targetUser) {
+    profileOverlay.style.display = 'none';
+    openDirectMessage(targetUser);
+};
+
+membersBtn.addEventListener('click', () => {
+    const listContainer = document.getElementById('members-list-container');
+    listContainer.innerHTML = '';
+    
+    const allMembers = [username, ...mentionableUsers].sort((a, b) => {
+        if (a === username) return -1;
+        if (b === username) return 1;
+        return a.localeCompare(b);
+    });
+
+    document.getElementById('members-count').textContent = `${allMembers.length} users in this channel`;
+
+    allMembers.forEach(member => {
+        const isOnline = availableUsers.includes(member) || member === username;
+        const div = document.createElement('div');
+        div.className = "flex items-center justify-between p-2 hover:bg-surface-container-low rounded-lg cursor-pointer transition-colors";
+        div.innerHTML = `
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs relative">
+                    ${member.charAt(0).toUpperCase()}
+                    <span class="absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}"></span>
+                </div>
+                <span class="font-body-sm font-bold text-on-surface">${member === username ? member + ' (You)' : member}</span>
+            </div>
+        `;
+        div.addEventListener('click', () => {
+            membersOverlay.style.display = 'none';
+            fetchAndShowProfile(member);
+        });
+        listContainer.appendChild(div);
+    });
+
+    membersOverlay.style.display = 'flex';
 });

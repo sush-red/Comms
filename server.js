@@ -29,8 +29,12 @@ db.serialize(() => {
     // Non-destructive migrations
     db.run(`ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE messages ADD COLUMN is_pinned INTEGER DEFAULT 0`, () => {});
-    // NEW: Array to track who has deleted the message for themselves
     db.run(`ALTER TABLE messages ADD COLUMN deleted_for TEXT DEFAULT '[]'`, () => {});
+    
+    // NEW: Non-destructive migrations for users
+    db.run(`ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN contact TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN status_msg TEXT DEFAULT 'Available'`, () => {});
 });
 
 io.on('connection', (socket) => {
@@ -92,7 +96,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Delete for Everyone
     socket.on('delete message', (data) => {
         db.get("SELECT timestamp, user FROM messages WHERE id = ?", [data.msgId], (err, row) => {
             if (err || !row) return;
@@ -107,7 +110,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // NEW: Delete for Me
     socket.on('delete for me', (data) => {
         db.get("SELECT deleted_for FROM messages WHERE id = ?", [data.msgId], (err, row) => {
             if (err || !row) return;
@@ -203,6 +205,27 @@ io.on('connection', (socket) => {
                 }
             });
         });
+    });
+
+    // --- NEW PROFILE EVENTS ---
+    socket.on('get profile', (targetUser) => {
+        db.get("SELECT username, role, email, contact, status_msg FROM users WHERE username = ?", [targetUser], (err, row) => {
+            if (row) {
+                socket.emit('profile data', row);
+            }
+        });
+    });
+
+    socket.on('update profile', (data) => {
+        // Only allow users to update their own profile
+        if (socket.username !== data.username) return;
+        
+        db.run("UPDATE users SET email = ?, contact = ?, status_msg = ? WHERE username = ?", 
+            [data.email, data.contact, data.status_msg, data.username], 
+            (err) => {
+                if (!err) socket.emit('profile updated successfully');
+            }
+        );
     });
 
     socket.on('disconnect', () => {

@@ -54,6 +54,53 @@
     </div>
   </div>
 
+  <div id="profile-overlay" class="fixed inset-0 bg-on-surface/20 backdrop-blur-sm z-50 items-center justify-center p-4" style="display: none;">
+    <div class="bg-surface-container-lowest rounded-xl shadow-modal w-full max-w-sm p-6 relative">
+      <button class="absolute top-4 right-4 text-on-surface-variant hover:text-error transition-colors" onclick="document.getElementById('profile-overlay').style.display='none'"><span class="material-symbols-outlined">close</span></button>
+      
+      <div class="flex flex-col items-center mb-6 mt-4">
+        <div class="w-20 h-20 bg-primary-container/10 text-primary rounded-full flex items-center justify-center mb-4 text-3xl font-bold" id="profile-avatar">U</div>
+        <h3 class="font-headline-md text-headline-md text-on-surface font-semibold flex items-center gap-2" id="profile-name">User Name</h3>
+        <p class="text-on-surface-variant text-sm capitalize" id="profile-role">Role</p>
+        <div class="mt-2 px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase flex items-center gap-1" id="profile-online-status">
+            <span class="w-2 h-2 rounded-full bg-gray-400" id="profile-status-dot"></span> <span id="profile-status-text">Offline</span>
+        </div>
+      </div>
+
+      <div class="space-y-4 mb-6 bg-surface-container-low p-4 rounded-lg border border-border-subtle">
+        <div>
+            <label class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">Email</label>
+            <div class="text-on-surface font-body-sm" id="profile-email">Not set</div>
+        </div>
+        <div>
+            <label class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">Contact Number</label>
+            <div class="text-on-surface font-body-sm" id="profile-contact">Not set</div>
+        </div>
+        <div>
+            <label class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">Status Message</label>
+            <div class="text-on-surface font-body-sm italic" id="profile-status-msg">Available</div>
+        </div>
+      </div>
+
+      <div id="profile-actions" class="flex gap-2">
+        </div>
+    </div>
+  </div>
+
+  <div id="members-overlay" class="fixed inset-0 bg-on-surface/20 backdrop-blur-sm z-50 items-center justify-center p-4" style="display: none;">
+    <div class="bg-surface-container-lowest rounded-xl shadow-modal w-full max-w-sm p-6 relative flex flex-col max-h-[80vh]">
+      <button class="absolute top-4 right-4 text-on-surface-variant hover:text-error transition-colors" onclick="document.getElementById('members-overlay').style.display='none'"><span class="material-symbols-outlined">close</span></button>
+      <div class="mb-4">
+        <h3 class="font-headline-md text-headline-md text-on-surface font-semibold flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary">group</span> Members
+        </h3>
+        <p class="text-sm text-on-surface-variant" id="members-count">0 users in this room</p>
+      </div>
+      <div id="members-list-container" class="overflow-y-auto space-y-1 pr-2 chat-scroll flex-1">
+          </div>
+    </div>
+  </div>
+
   <nav class="h-screen w-[250px] md:w-sidebar-width fixed left-0 top-0 bg-sidebar-bg flex flex-col p-4 z-20">
     <div class="flex items-center justify-between mb-4 px-2 text-on-primary">
         <h1 class="text-headline-md font-bold">Comms</h1>
@@ -101,6 +148,9 @@
         </div>
 
         <div class="flex items-center gap-2 min-w-max">
+            <button id="members-btn" class="p-2 rounded-full hover:bg-surface-container-low text-on-surface-variant transition-colors" title="View Channel Members">
+                <span class="material-symbols-outlined text-[20px]">group</span>
+            </button>
             <button id="mute-btn" class="p-2 rounded-full hover:bg-surface-container-low text-on-surface-variant transition-colors" title="Mute Notifications">
                 <span class="material-symbols-outlined text-[20px]">notifications</span>
             </button>
