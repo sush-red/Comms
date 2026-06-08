@@ -25,8 +25,24 @@
     
     .message-container { display: flex; flex-direction: column; }
     .message-sender { font-size: 0.8rem; color: #7f8c8d; margin-bottom: 2px; font-weight: bold; }
-    .message-bubble { background: #ecf0f1; padding: 10px 15px; border-radius: 15px; max-width: 70%; align-self: flex-start; }
+    
+    /* UPGRADED: Flex-column forces text and files to stack neatly! */
+    .message-bubble { background: #ecf0f1; padding: 10px 15px; border-radius: 15px; max-width: 70%; align-self: flex-start; word-break: break-word; display: flex; flex-direction: column; gap: 6px;}
     .message-bubble.mentioned { background: #ffeaa7; border: 1px solid #fdcb6e; font-weight: bold; }
+    
+    /* UPGRADED: Pulls the bubble to the right for "Me" messages */
+    .message-container.me { align-items: flex-end; }
+    .message-container.me .message-bubble { background: #e3f2fd; align-self: flex-end; }
+    .message-container.me .reaction-bar { justify-content: flex-end; }
+
+    /* NEW: Reply Bubble Styles */
+    .reply-quote { background: rgba(0,0,0,0.05); border-left: 4px solid #3498db; padding: 6px 10px; border-radius: 4px; font-size: 0.85rem; color: #555; cursor: pointer; transition: background 0.2s; }
+    .reply-quote:hover { background: rgba(0,0,0,0.1); }
+    .reply-quote-sender { font-weight: bold; color: #2c3e50; margin-bottom: 2px; }
+
+    .message-image { max-width: 250px; border-radius: 8px; display: block; cursor: pointer; border: 1px solid #ddd;}
+    .message-file { display: inline-flex; align-items: center; gap: 8px; background: #fff; padding: 10px 15px; border-radius: 8px; border: 1px solid #ccc; text-decoration: none; color: #2c3e50; font-size: 0.9rem; font-weight: bold; transition: background 0.2s; }
+    .message-file:hover { background: #f9f9f9; border-color: #3498db; }
     
     .reaction-bar { display: flex; gap: 5px; margin-top: 5px; min-height: 24px; }
     .reaction-btn { position: relative; background: none; border: 1px solid #ddd; border-radius: 12px; padding: 2px 6px; font-size: 0.8rem; cursor: pointer; background: #fff; display: none; }
@@ -43,12 +59,24 @@
     .tooltip-row:last-child { border-bottom: none; }
 
     #form-container { position: relative; padding: 20px; background: #fff; border-top: 1px solid #eee; display: flex; flex-direction: column;}
-    #form { display: flex; width: 100%; }
+    
+    /* NEW: Reply Preview Box in the form */
+    #reply-preview { display: none; background: #e8f4fd; border-left: 4px solid #3498db; padding: 10px 15px; margin-bottom: 10px; border-radius: 4px; font-size: 0.85rem; color: #2c3e50; position: relative; }
+    .cancel-reply-btn { background: none; border: none; color: #7f8c8d; cursor: pointer; position: absolute; right: 10px; top: 10px; font-weight: bold; font-size: 1.2rem; line-height: 1;}
+    .cancel-reply-btn:hover { color: #e74c3c; }
+
+    #attachment-preview { display: none; background: #f0f4f8; padding: 6px 12px; border-radius: 15px; font-size: 0.85rem; color: #2c3e50; border: 1px solid #dcdde1; align-items: center; gap: 8px; margin-bottom: 10px; width: fit-content; }
+    .cancel-attach-btn { background: #ff7675; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 0.8rem; font-weight: bold; padding: 0; line-height: 1;}
+    .cancel-attach-btn:hover { background: #d63031; }
+
+    #form { display: flex; width: 100%; align-items: center;}
+    #attach-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0 15px 0 5px; color: #7f8c8d; transition: color 0.2s;}
+    #attach-btn:hover { color: #3498db; }
     #input { flex-grow: 1; padding: 12px 20px; border: 1px solid #ddd; border-radius: 25px; outline: none; font-size: 1rem; }
     #input:focus { border-color: #3498db; }
-    #form > button { background: #3498db; color: white; border: none; padding: 0 25px; margin-left: 10px; border-radius: 25px; cursor: pointer; font-size: 1rem; font-weight: bold; }
+    #form > button { background: #3498db; color: white; border: none; padding: 0 25px; margin-left: 10px; border-radius: 25px; cursor: pointer; font-size: 1rem; font-weight: bold; height: 42px;}
 
-    #mention-dropdown { position: absolute; bottom: 100%; left: 20px; background: white; border: 1px solid #eee; border-radius: 8px; box-shadow: 0 -4px 15px rgba(0,0,0,0.1); width: 250px; max-height: 200px; overflow-y: auto; display: none; z-index: 100; margin-bottom: 5px; padding: 5px 0;}
+    #mention-dropdown { position: absolute; bottom: 100%; left: 60px; background: white; border: 1px solid #eee; border-radius: 8px; box-shadow: 0 -4px 15px rgba(0,0,0,0.1); width: 250px; max-height: 200px; overflow-y: auto; display: none; z-index: 100; margin-bottom: 5px; padding: 5px 0;}
     .mention-item { padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 0.95rem; color: #2c3e50; }
     .mention-item.active { background: #3498db; color: white; border-radius: 6px; margin: 0 5px; }
     .mention-avatar { background: #ecf0f1; color: #2c3e50; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; flex-shrink: 0;}
@@ -81,9 +109,16 @@
     
     <div id="form-container">
       <div id="mention-dropdown"></div>
+      
+      <div id="reply-preview"></div>
+      
+      <div id="attachment-preview"></div>
+
       <form id="form" action="">
+        <input type="file" id="file-input" style="display: none;" />
+        <button type="button" id="attach-btn" title="Attach a file">📎</button>
         <input id="input" autocomplete="off" placeholder="Message channel..." />
-        <button>Send</button>
+        <button type="submit">Send</button>
       </form>
     </div>
   </div>
@@ -97,8 +132,12 @@
     let availableUsers = [];
     let filteredUsers = [];
     let selectedMentionIndex = 0;
-    // FIX 1: Track the true cursor position constantly
     let savedCursorPos = 0; 
+
+    let attachedFileData = null;
+    
+    // NEW: Variable to hold the message we are replying to
+    let replyingToMessage = null;
 
     const loginOverlay = document.getElementById('login-overlay');
     const usernameInput = document.getElementById('username-input');
@@ -109,6 +148,11 @@
     const chatHeader = document.getElementById('chat-header');
     const channelItems = document.querySelectorAll('.channel-item');
     const mentionDropdown = document.getElementById('mention-dropdown');
+    
+    const attachBtn = document.getElementById('attach-btn');
+    const fileInput = document.getElementById('file-input');
+    const attachmentPreview = document.getElementById('attachment-preview');
+    const replyPreview = document.getElementById('reply-preview');
 
     joinBtn.addEventListener('click', () => {
       const enteredName = usernameInput.value.trim();
@@ -126,7 +170,6 @@
       availableUsers = users.filter(u => u !== username);
     });
 
-    // Update saved position whenever typing or clicking
     input.addEventListener('keyup', () => { savedCursorPos = input.selectionStart; });
     input.addEventListener('click', () => { savedCursorPos = input.selectionStart; });
 
@@ -134,15 +177,13 @@
       savedCursorPos = input.selectionStart;
       const val = input.value;
       const textBeforeCursor = val.substring(0, savedCursorPos);
-
       const match = textBeforeCursor.match(/(?:^|\s)@([a-zA-Z0-9_]*)$/);
 
       if (match) {
         const searchTerm = match[1].toLowerCase();
         filteredUsers = availableUsers.filter(u => u.toLowerCase().startsWith(searchTerm));
-
         if (filteredUsers.length > 0) {
-          buildMentionDropdown(); // Only build the DOM once
+          buildMentionDropdown();
         } else {
           closeMentionDropdown();
         }
@@ -151,7 +192,6 @@
       }
     });
 
-    // FIX 2: Separate the rendering of HTML from the highlighting
     function buildMentionDropdown() {
       mentionDropdown.innerHTML = '';
       mentionDropdown.style.display = 'block';
@@ -161,41 +201,30 @@
       filteredUsers.forEach((user, index) => {
         const item = document.createElement('div');
         item.className = 'mention-item';
-        
         const avatar = document.createElement('div');
         avatar.className = 'mention-avatar';
         avatar.textContent = user.charAt(0).toUpperCase();
-
         const nameSpan = document.createElement('span');
         nameSpan.textContent = user;
-
         item.appendChild(avatar);
         item.appendChild(nameSpan);
 
-        // Prevent input blur in Chrome
         item.addEventListener('mousedown', (e) => { e.preventDefault(); });
-        
-        // Execute insert
         item.addEventListener('click', () => { insertMention(user); });
-
         item.addEventListener('mouseenter', () => {
           selectedMentionIndex = index;
-          updateActiveHighlight(); // Just update highlight, don't rebuild
+          updateActiveHighlight(); 
         });
-
         mentionDropdown.appendChild(item);
       });
-      
-      updateActiveHighlight(); // Initial highlight
+      updateActiveHighlight(); 
     }
 
-    // FIX 2: Updates the blue background and smoothly scrolls the list
     function updateActiveHighlight() {
       const items = mentionDropdown.querySelectorAll('.mention-item');
       items.forEach((item, index) => {
         if (index === selectedMentionIndex) {
           item.classList.add('active');
-          // This keeps the selected item visible even if the list is long
           item.scrollIntoView({ block: 'nearest' });
         } else {
           item.classList.remove('active');
@@ -211,7 +240,6 @@
 
     function insertMention(userToTag) {
       const val = input.value;
-      // FIX 1: Use the reliably saved cursor position, ignoring Chrome's glitches
       const cursor = savedCursorPos; 
       const textBeforeCursor = val.substring(0, cursor);
       const textAfterCursor = val.substring(cursor);
@@ -221,12 +249,10 @@
         const startPos = match.index + (match[0].startsWith(' ') ? 1 : 0);
         const newText = textBeforeCursor.substring(0, startPos) + `@${userToTag} ` + textAfterCursor;
         input.value = newText;
-        
-        // Restore focus and put cursor at the end of the newly inserted tag
         input.focus();
         const newPos = startPos + userToTag.length + 2;
         input.selectionStart = input.selectionEnd = newPos;
-        savedCursorPos = newPos; // Update saved position immediately
+        savedCursorPos = newPos; 
       }
       closeMentionDropdown();
     }
@@ -236,7 +262,7 @@
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           selectedMentionIndex = (selectedMentionIndex + 1) % filteredUsers.length;
-          updateActiveHighlight(); // Just highlight and scroll, no re-rendering!
+          updateActiveHighlight();
         } else if (e.key === 'ArrowUp') {
           e.preventDefault();
           selectedMentionIndex = (selectedMentionIndex - 1 + filteredUsers.length) % filteredUsers.length;
@@ -250,6 +276,53 @@
           closeMentionDropdown();
         }
       }
+    });
+
+    attachBtn.addEventListener('click', () => { fileInput.click(); });
+
+    window.clearAttachment = function() {
+      attachedFileData = null;
+      attachmentPreview.style.display = 'none';
+      attachmentPreview.innerHTML = '';
+      fileInput.value = ''; 
+    };
+
+    // NEW: Functions to handle Reply State
+    window.clearReply = function() {
+      replyingToMessage = null;
+      replyPreview.style.display = 'none';
+      replyPreview.innerHTML = '';
+    };
+
+    function setReply(data, previewText) {
+      replyingToMessage = {
+        id: data.id,
+        user: data.user,
+        text: previewText.length > 50 ? previewText.substring(0, 50) + '...' : previewText
+      };
+      
+      replyPreview.innerHTML = `<button type="button" class="cancel-reply-btn" onclick="clearReply()">×</button><strong>Replying to ${data.user}</strong><br/>${replyingToMessage.text}`;
+      replyPreview.style.display = 'block';
+      input.focus();
+    }
+
+    fileInput.addEventListener('change', function() {
+      const file = this.files[0];
+      if (!file) return;
+
+      if (file.size > 2 * 1024 * 1024) {
+        alert("For this prototype phase, please select a file under 2MB.");
+        this.value = ''; 
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        attachedFileData = { name: file.name, type: file.type, data: e.target.result };
+        attachmentPreview.innerHTML = `📎 ${file.name} <button type="button" class="cancel-attach-btn" onclick="clearAttachment()" title="Remove attachment">×</button>`;
+        attachmentPreview.style.display = 'inline-flex';
+      };
+      reader.readAsDataURL(file); 
     });
 
     function playDing() {
@@ -269,25 +342,82 @@
       const container = document.createElement('li');
       container.className = 'message-container';
       
+      const isMe = (data.user === username);
+      if (isMe) {
+        container.classList.add('me'); 
+      }
+
       const messageId = data.id || Math.random().toString(36).substr(2, 9);
       container.id = `msg-${messageId}`;
       
       const sender = document.createElement('div');
       sender.className = 'message-sender';
-      sender.textContent = data.user;
+      sender.textContent = isMe ? 'Me' : data.user;
       
       const bubble = document.createElement('div');
       bubble.className = 'message-bubble';
-      bubble.textContent = data.text;
+      
+      // NEW: Draw the Reply Block if it exists
+      if (data.replyTo) {
+          const quoteDiv = document.createElement('div');
+          quoteDiv.className = 'reply-quote';
+          
+          // Click the quote to jump back to the original message!
+          quoteDiv.addEventListener('click', () => {
+              const originalMsg = document.getElementById(`msg-${data.replyTo.id}`);
+              if (originalMsg) {
+                  originalMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  // Flash the original message so they see it
+                  originalMsg.style.transition = 'background 0.5s';
+                  originalMsg.style.backgroundColor = '#ffeaa7';
+                  setTimeout(() => originalMsg.style.backgroundColor = 'transparent', 1500);
+              }
+          });
 
-      if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
-        bubble.classList.add('mentioned'); 
-        if (data.user !== username) {
-          playDing();
-          if (document.hidden && Notification.permission === "granted") {
-            new Notification(`New mention from ${data.user}`, { body: data.text });
+          const quoteSender = document.createElement('div');
+          quoteSender.className = 'reply-quote-sender';
+          quoteSender.textContent = data.replyTo.user;
+          
+          const quoteText = document.createElement('div');
+          quoteText.textContent = data.replyTo.text;
+
+          quoteDiv.appendChild(quoteSender);
+          quoteDiv.appendChild(quoteText);
+          bubble.appendChild(quoteDiv);
+      }
+      
+      // UPGRADED: Put text inside its own div so it stacks with the file
+      if (data.text) {
+          const textDiv = document.createElement('div');
+          textDiv.textContent = data.text;
+          
+          if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
+            bubble.classList.add('mentioned'); 
+            if (!isMe) {
+              playDing();
+              if (document.hidden && Notification.permission === "granted") {
+                new Notification(`New mention from ${data.user}`, { body: data.text });
+              }
+            }
           }
-        }
+          bubble.appendChild(textDiv);
+      }
+      
+      if (data.file) {
+          if (data.file.type.startsWith('image/')) {
+              const img = document.createElement('img');
+              img.src = data.file.data;
+              img.className = 'message-image';
+              img.addEventListener('click', () => window.open(data.file.data, '_blank'));
+              bubble.appendChild(img);
+          } else {
+              const link = document.createElement('a');
+              link.href = data.file.data;
+              link.download = data.file.name;
+              link.textContent = `📄 Download ${data.file.name}`;
+              link.className = 'message-file';
+              bubble.appendChild(link);
+          }
       }
       
       container.appendChild(sender);
@@ -296,6 +426,18 @@
       const reactionBar = document.createElement('div');
       reactionBar.className = 'reaction-bar';
       
+      // NEW: The Reply Button
+      const replyBtn = document.createElement('button');
+      replyBtn.className = 'reaction-btn';
+      replyBtn.innerHTML = '↩️';
+      replyBtn.title = 'Reply';
+      replyBtn.addEventListener('click', () => {
+          // Figure out what text to show in the preview
+          let previewText = data.text ? data.text : (data.file ? `[Attachment: ${data.file.name}]` : 'Message');
+          setReply(data, previewText);
+      });
+      reactionBar.appendChild(replyBtn);
+
       const emojis = ['👍', '👎', '❤️', '✅', '👀'];
       
       emojis.forEach(emoji => {
@@ -346,14 +488,33 @@
         messages.innerHTML = ''; 
         socket.emit('join room', { room: newRoom, username: username }); 
         currentRoom = newRoom;
+        clearReply(); // Clear any pending replies when switching channels
       });
     });
 
     form.addEventListener('submit', function(e) {
       e.preventDefault();
-      if (mentionDropdown.style.display !== 'block' && input.value) {
-        socket.emit('chat message', { user: username, text: input.value, room: currentRoom });
+      
+      const textVal = input.value.trim();
+      
+      if (mentionDropdown.style.display !== 'block' && (textVal !== '' || attachedFileData !== null)) {
+        
+        const payload = { user: username, text: textVal, room: currentRoom };
+        
+        if (attachedFileData !== null) {
+            payload.file = attachedFileData;
+        }
+
+        // UPGRADED: Attach the reply data if it exists
+        if (replyingToMessage !== null) {
+            payload.replyTo = replyingToMessage;
+        }
+        
+        socket.emit('chat message', payload);
+        
         input.value = '';
+        clearAttachment();
+        clearReply(); 
         closeMentionDropdown();
       }
     });
