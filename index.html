@@ -2,15 +2,14 @@
 <html>
 <head>
   <title>Fintech Internal Chat</title>
-  
   <link rel="stylesheet" href="/style.css">
-  
 </head>
 <body>
 
   <div id="login-overlay">
     <div class="modal-box">
       <h2>Comms Workspace</h2>
+      <p class="subtitle" style="text-align: center;">Sign in to your team's workspace.</p>
       <input type="text" id="username-input" placeholder="Enter your full name..." autocomplete="off">
       <select id="role-input">
         <option value="user">Standard User</option>
@@ -24,8 +23,9 @@
   <div id="create-channel-overlay">
     <div class="modal-box">
       <button class="close-modal" onclick="document.getElementById('create-channel-overlay').style.display='none'">×</button>
-      <h2>Create Custom Channel</h2>
-      <input type="text" id="new-channel-name" placeholder="Channel Name (no spaces)" autocomplete="off">
+      <h2>Create Channel</h2>
+      <p class="subtitle">Set up a new dedicated space for your team.</p>
+      <input type="text" id="new-channel-name" placeholder="e.g. marketing-campaign" autocomplete="off">
       <div id="user-select-list">
         </div>
       <button id="submit-channel-btn" class="primary">Create Channel</button>
@@ -51,10 +51,13 @@
 
   <div id="main-chat">
     <div id="chat-header">
-        <div class="header-title" id="header-title-text"># General</div>
+        <div class="header-left">
+            <div class="header-title" id="header-title-text"># General</div>
+            <button id="mute-btn" title="Mute Notifications">🔔</button>
+        </div>
         
-        <div id="mentions-hub">
-            🔔<span id="mentions-badge">0</span>
+        <div id="mentions-hub" title="Activity & Mentions">
+            📥<span id="mentions-badge">0</span>
             <div id="mentions-dropdown">
                 </div>
         </div>
@@ -75,8 +78,6 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  
   <script src="/app.js"></script>
-
 </body>
 </html>
