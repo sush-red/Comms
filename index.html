@@ -116,7 +116,7 @@
     </header>
 
     <div class="flex-1 overflow-hidden flex flex-col relative">
-        <ul id="messages" class="flex-1 overflow-y-auto chat-scroll p-4 md:p-6 pb-20 flex flex-col gap-6"></ul>
+        <ul id="messages" class="flex-1 overflow-y-auto overflow-x-hidden break-words p-4 space-y-4"></ul>
         
         <div id="typing-indicator" class="absolute bottom-4 left-6 flex items-center gap-2 text-on-surface-variant font-label-sm text-label-sm animate-pulse hidden bg-surface-container-lowest py-1 px-3 rounded-full shadow-sm border border-border-subtle z-10">
             <span class="material-symbols-outlined text-[16px]">more_horiz</span> <span id="typing-text">Someone is typing...</span>
@@ -133,7 +133,13 @@
             <button type="button" id="attach-btn" class="p-2 text-on-surface-variant hover:text-primary transition-colors rounded-lg hover:bg-surface-container-low">
                 <span class="material-symbols-outlined">attach_file</span>
             </button>
-            <input id="input" class="flex-1 bg-transparent border-none outline-none focus:ring-0 font-body-md text-on-surface placeholder-on-surface-variant py-2 px-2" autocomplete="off" placeholder="Message channel..." />
+            <textarea 
+                id="input" 
+                rows="1" 
+                class="flex-1 bg-transparent border-none outline-none focus:ring-0 font-body-md text-on-surface placeholder-on-surface-variant py-2 px-2 resize-none overflow-y-auto max-h-[120px]" 
+                autocomplete="off" 
+                placeholder="Message channel..."
+            ></textarea>
             <button type="submit" class="p-2 px-4 bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors shadow-sm font-bold flex items-center justify-center">
                 <span class="material-symbols-outlined">send</span>
             </button>

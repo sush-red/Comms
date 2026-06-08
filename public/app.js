@@ -373,14 +373,41 @@ function insertMention(userToTag) {
   closeMentionDropdown();
 }
 
+// ---------------------------------------------
+// FIX: ENTER vs SHIFT+ENTER LOGIC
+// ---------------------------------------------
+function sendMessage() {
+  const textVal = input.value.trim();
+  if (mentionDropdown.style.display !== 'block' && (textVal !== '' || attachedFileData !== null)) {
+    const payload = { user: username, text: textVal, room: currentRoom };
+    if (attachedFileData !== null) payload.file = attachedFileData;
+    if (replyingToMessage !== null) payload.replyTo = replyingToMessage;
+    
+    socket.emit('chat message', payload);
+    socket.emit('stop typing', { room: currentRoom, username: username });
+    input.value = ''; clearAttachment(); clearReply(); closeMentionDropdown();
+  }
+}
+
+form.addEventListener('submit', function(e) {
+  e.preventDefault();
+  sendMessage();
+});
+
 input.addEventListener('keydown', (e) => {
   if (mentionDropdown.style.display === 'block') {
     if (e.key === 'ArrowDown') { e.preventDefault(); selectedMentionIndex = (selectedMentionIndex + 1) % filteredUsers.length; updateActiveHighlight(); } 
     else if (e.key === 'ArrowUp') { e.preventDefault(); selectedMentionIndex = (selectedMentionIndex - 1 + filteredUsers.length) % filteredUsers.length; updateActiveHighlight(); } 
     else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (filteredUsers[selectedMentionIndex]) insertMention(filteredUsers[selectedMentionIndex]); } 
     else if (e.key === 'Escape') closeMentionDropdown();
+  } 
+  // Send message on Enter (but drop to new line if Shift is held down)
+  else if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
   }
 });
+// ---------------------------------------------
 
 document.getElementById('attach-btn').addEventListener('click', () => { document.getElementById('file-input').click(); });
 window.clearAttachment = function() { attachedFileData = null; document.getElementById('attachment-preview').style.display = 'none'; document.getElementById('file-input').value = ''; };
@@ -439,7 +466,6 @@ function updatePinnedBanner() {
     });
 }
 
-// NEW: Tooltip Builder Function
 function createHoverAction(icon, tooltipText, onClick, isDanger = false) {
     const wrapper = document.createElement('div');
     wrapper.className = 'relative group/action';
@@ -461,7 +487,8 @@ function createHoverAction(icon, tooltipText, onClick, isDanger = false) {
 function displayMessage(data, isHistory = false, prepend = false) {
   const container = document.createElement('li');
   const isMe = (data.user === username);
-  container.className = isMe ? 'flex items-end justify-end gap-3 max-w-[85%] self-end group' : 'flex items-end gap-3 max-w-[85%] group';
+  // FIX: Swapped self-end for ml-auto to push the container flush right
+  container.className = isMe ? 'flex items-end justify-end gap-3 max-w-[85%] ml-auto group' : 'flex items-end gap-3 max-w-[85%] group';
   const messageId = data.id || Math.random().toString(36).substr(2, 9);
   container.id = `msg-${messageId}`;
   
@@ -505,7 +532,7 @@ function displayMessage(data, isHistory = false, prepend = false) {
       
       if (data.text) {
           const textDiv = document.createElement('p');
-          textDiv.className = 'font-body-md text-body-md';
+          textDiv.className = 'font-body-md text-body-md whitespace-pre-wrap'; // Preserves newlines
           if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
             bubble.classList.add('ring-2', 'ring-mention-gold'); 
             if (!isMe && !isHistory) processMentionAlert(data);
@@ -528,19 +555,17 @@ function displayMessage(data, isHistory = false, prepend = false) {
           }
       }
 
+      // FIX: Keep actions safely anchored inside the bubble bounds using left-2 / right-2
       const hoverActions = document.createElement('div');
-      hoverActions.className = `absolute -top-4 ${isMe ? '-left-6' : '-right-6'} bg-surface border border-border-subtle rounded-lg shadow-sm flex items-center p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10`;
+      hoverActions.className = `absolute -top-5 ${isMe ? 'right-2' : 'left-2'} bg-surface border border-border-subtle rounded-lg shadow-sm flex items-center p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-20`;
       
-      // NEW: Implementing Tooltips and Delete For Me logic
       hoverActions.appendChild(createHoverAction('reply', 'Reply', () => setReply(data, data.text ? data.text : (data.file ? `[Attachment: ${data.file.name}]` : 'Message'))));
       
       const pinText = data.is_pinned ? 'Unpin message' : 'Pin message';
       hoverActions.appendChild(createHoverAction('keep', pinText, () => socket.emit('toggle pin', { room: currentRoom, msgId: messageId, msgData: data })));
       
-      // Everyone can delete for themselves
       hoverActions.appendChild(createHoverAction('visibility_off', 'Delete for me', () => socket.emit('delete for me', { room: currentRoom, msgId: messageId })));
 
-      // Only sender can delete for everyone
       if (isMe) {
           hoverActions.appendChild(createHoverAction('delete', 'Delete for everyone', () => socket.emit('delete message', { room: currentRoom, msgId: messageId }), true));
       }
@@ -604,25 +629,24 @@ socket.on('message deleted', (msgId) => {
         if (bubble) {
             bubble.innerHTML = '<p class="text-on-surface-variant italic font-body-sm flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">block</span> This message was deleted</p>';
         }
-        const hoverActions = msgEl.querySelector('.absolute.-top-4');
+        const hoverActions = msgEl.querySelector('.absolute.-top-5');
         if (hoverActions) hoverActions.remove();
         const reactionBar = msgEl.querySelector('.min-h-\\[24px\\]');
         if (reactionBar) reactionBar.remove();
     }
 });
 
-// NEW: Handing the UI removal when "Delete for Me" is triggered
 socket.on('message deleted for me', (msgId) => {
     const msgEl = document.getElementById(`msg-${msgId}`);
     if (msgEl) msgEl.remove();
     
-    // Also remove from pinned banner if it was pinned
     if (pinnedMessagesMap.has(msgId)) {
         pinnedMessagesMap.delete(msgId);
         updatePinnedBanner();
     }
 });
 
+// FIX: Syncs tooltip text dynamically when a pin action completes
 socket.on('update pin', (data) => {
     if (data.isPinned) {
         pinnedMessagesMap.set(data.msgId, data.msgData);
@@ -630,20 +654,20 @@ socket.on('update pin', (data) => {
         pinnedMessagesMap.delete(data.msgId);
     }
     updatePinnedBanner();
-});
 
-form.addEventListener('submit', function(e) {
-  e.preventDefault();
-  const textVal = input.value.trim();
-  if (mentionDropdown.style.display !== 'block' && (textVal !== '' || attachedFileData !== null)) {
-    const payload = { user: username, text: textVal, room: currentRoom };
-    if (attachedFileData !== null) payload.file = attachedFileData;
-    if (replyingToMessage !== null) payload.replyTo = replyingToMessage;
-    
-    socket.emit('chat message', payload);
-    socket.emit('stop typing', { room: currentRoom, username: username });
-    input.value = ''; clearAttachment(); clearReply(); closeMentionDropdown();
-  }
+    // Finds the specific message in the UI and flips its tooltip
+    const msgEl = document.getElementById(`msg-${data.msgId}`);
+    if (msgEl) {
+        const pinIcons = msgEl.querySelectorAll('.material-symbols-outlined');
+        pinIcons.forEach(icon => {
+            if (icon.textContent === 'keep') {
+                const tooltip = icon.parentElement.nextElementSibling;
+                if (tooltip) {
+                    tooltip.textContent = data.isPinned ? 'Unpin message' : 'Pin message';
+                }
+            }
+        });
+    }
 });
 
 socket.on('chat message', function(data) { displayMessage(data, false, false); });
@@ -680,4 +704,16 @@ socket.on('update reaction', function(data) {
       tooltip.innerHTML = `React with ${data.emoji}`;
     }
   }
+
+});
+
+// Auto-resize the textarea as the user types
+input.addEventListener('input', function() {
+    this.style.height = 'auto'; // Reset height to recalculate
+    this.style.height = (this.scrollHeight) + 'px'; // Set to exact scroll height
+    
+    // Reset back to normal if the box is empty
+    if (this.value === '') {
+        this.style.height = 'auto';
+    }
 });
