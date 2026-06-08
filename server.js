@@ -79,7 +79,7 @@ io.on('connection', (socket) => {
                 } else {
                     // It's a public channel (General, etc.), everyone can be mentioned
                     db.all("SELECT username FROM users", [], (err, rows) => {
-                        if (!err) socket.emit('room directory', rows.map(r => r.username));
+                        if (!err) io.to(roomToJoin).emit('room directory', rows.map(r => r.username));
                     });
                 }
             });
