@@ -11,7 +11,6 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
 
-// Database Initialization
 const db = new sqlite3.Database('./chat.db', (err) => {
     if (err) console.error("Database Error:", err.message);
     else console.log("Connected to SQLite Database.");
@@ -25,6 +24,8 @@ db.serialize(() => {
         reactions TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
     db.run(`CREATE TABLE IF NOT EXISTS custom_channels (name TEXT PRIMARY KEY, members TEXT)`);
+    // NEW: Persistent User Directory
+    db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, role TEXT)`);
 });
 
 io.on('connection', (socket) => {
@@ -35,6 +36,9 @@ io.on('connection', (socket) => {
         socket.role = data.role;
         socket.join(data.username); 
 
+        // Add user to the permanent directory
+        db.run("INSERT OR IGNORE INTO users (username, role) VALUES (?, ?)", [data.username, data.role]);
+
         db.all("SELECT * FROM custom_channels", [], (err, rows) => {
             if (!err) {
                 const myCustomChannels = rows
@@ -44,8 +48,9 @@ io.on('connection', (socket) => {
             }
         });
 
+        // Broadcast global online status
         const activeUsers = Array.from(io.sockets.sockets.values()).map(s => s.username).filter(Boolean);
-        io.emit('room users', activeUsers);
+        io.emit('global presence', activeUsers);
     });
 
     socket.on('join room', (data) => {
@@ -57,14 +62,30 @@ io.on('connection', (socket) => {
         });
         socket.join(roomToJoin);
 
-        // Fetch History
         db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp DESC LIMIT 50", [roomToJoin], (err, rows) => {
             if (err) return console.error(err);
             const history = rows.reverse().map(formatMessageRow);
             socket.emit('chat history', history);
         });
 
-        // FIX: Broadcast the list of users currently in this room to the frontend safely
+        // Determine Mentionable Directory for this specific room
+        if (roomToJoin.startsWith('DM-')) {
+            const mentionable = roomToJoin.replace('DM-', '').split('-');
+            socket.emit('room directory', mentionable);
+        } else {
+            db.get("SELECT members FROM custom_channels WHERE name = ?", [roomToJoin], (err, row) => {
+                if (row) {
+                    socket.emit('room directory', JSON.parse(row.members));
+                } else {
+                    // It's a public channel (General, etc.), everyone can be mentioned
+                    db.all("SELECT username FROM users", [], (err, rows) => {
+                        if (!err) socket.emit('room directory', rows.map(r => r.username));
+                    });
+                }
+            });
+        }
+        
+        // Broadcast local online status for this room
         const clients = io.sockets.adapter.rooms.get(roomToJoin);
         if (clients) {
             const usersInRoom = Array.from(clients).map(id => io.sockets.sockets.get(id)?.username).filter(Boolean);
@@ -75,17 +96,14 @@ io.on('connection', (socket) => {
     socket.on('load more messages', (data) => {
         db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp DESC LIMIT 50 OFFSET ?", [data.room, data.offset], (err, rows) => {
             if (err || rows.length === 0) return;
-            const olderHistory = rows.reverse().map(formatMessageRow);
-            socket.emit('older messages', olderHistory);
+            socket.emit('older messages', rows.reverse().map(formatMessageRow));
         });
     });
 
     socket.on('search messages', (query) => {
         const searchQuery = `%${query}%`;
         db.all("SELECT * FROM messages WHERE text LIKE ? ORDER BY timestamp DESC LIMIT 20", [searchQuery], (err, rows) => {
-            if (err) return;
-            const results = rows.map(formatMessageRow);
-            socket.emit('search results', results);
+            if (!err) socket.emit('search results', rows.map(formatMessageRow));
         });
     });
 
@@ -101,7 +119,6 @@ io.on('connection', (socket) => {
 
     socket.on('chat message', (data) => {
         data.id = Math.random().toString(36).substr(2, 9);
-        // FIX: Restored Emojis
         data.reactions = { '👍': [], '👎': [], '❤️': [], '✅': [], '👀': [] };
         
         io.to(data.room).emit('chat message', data);
@@ -148,7 +165,7 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         const activeUsers = Array.from(io.sockets.sockets.values()).map(s => s.username).filter(Boolean);
-        io.emit('room users', activeUsers);
+        io.emit('global presence', activeUsers);
     });
 });
 
@@ -157,7 +174,6 @@ function formatMessageRow(row) {
         id: row.id, user: row.user, text: row.text, room: row.room,
         file: row.file_name ? { name: row.file_name, type: row.file_type, data: row.file_data } : null,
         replyTo: row.reply_to_id ? { id: row.reply_to_id, user: row.reply_to_user, text: row.reply_to_text } : null,
-        // FIX: Restored Emojis Fallback
         reactions: JSON.parse(row.reactions || '{"👍":[],"👎":[],"❤️":[],"✅":[],"👀":[]}'),
         timestamp: row.timestamp
     };

@@ -3,7 +3,8 @@ let username = "Anonymous";
 let userRole = "user"; 
 let currentRoom = "General";
 
-let availableUsers = [];
+let availableUsers = []; // Online users for green dots
+let mentionableUsers = []; // All users allowed in channel for @ tagging
 let filteredUsers = [];
 let selectedMentionIndex = 0;
 let savedCursorPos = 0; 
@@ -61,9 +62,15 @@ socket.on('login success', (data) => {
     data.customChannels.forEach(ch => addChannelToSidebar(ch, channelList));
 });
 
-socket.on('room users', (users) => {
+// NEW: Global online status for green dots
+socket.on('global presence', (users) => {
     availableUsers = users.filter(u => u !== username);
     updateOnlineStatusUI();
+});
+
+// NEW: Permanent directory for @ mentions
+socket.on('room directory', (users) => {
+    mentionableUsers = users.filter(u => u !== username);
 });
 
 function updateOnlineStatusUI() {
@@ -271,7 +278,8 @@ socket.on('search results', (results) => {
 
 createChannelBtn.addEventListener('click', () => {
     userSelectList.innerHTML = ''; 
-    availableUsers.forEach(u => {
+    // Uses the permanent directory for creating channels
+    mentionableUsers.forEach(u => {
         userSelectList.innerHTML += `<label class="flex items-center gap-2 mb-1 text-sm cursor-pointer hover:bg-white p-1 rounded"><input type="checkbox" value="${u}"> ${u}</label>`;
     });
     createChannelOverlay.style.display = 'flex';
@@ -296,8 +304,8 @@ input.addEventListener('input', () => {
 
     if (match) {
         const searchTerm = match[1].toLowerCase();
-        // FIX: The mention dropdown will correctly filter using the restored availableUsers list
-        filteredUsers = availableUsers.filter(u => u.toLowerCase().startsWith(searchTerm));
+        // FIX: Now filters using the permanent mentionableUsers list
+        filteredUsers = mentionableUsers.filter(u => u.toLowerCase().startsWith(searchTerm));
         
         if (filteredUsers.length > 0) buildMentionDropdown();
         else closeMentionDropdown();
@@ -352,7 +360,7 @@ function closeMentionDropdown() {
 
 function insertMention(userToTag) {
   const val = input.value;
-  const match = val.substring(0, savedCursorPos).match(/(?:^|\s)@([a-zA-Z0-9_]*)$/);
+  const match = val.substring(0, savedCursorPos).match(/(?:^|\s)@([a-zA-Z0-9_ ]*)$/);
   if (match) {
     const startPos = match.index + (match[0].startsWith(' ') ? 1 : 0);
     input.value = val.substring(0, startPos) + `@${userToTag} ` + val.substring(savedCursorPos);
@@ -480,7 +488,6 @@ function displayMessage(data, isHistory = false, prepend = false) {
   const reactionBar = document.createElement('div');
   reactionBar.className = 'flex gap-1 mt-1 min-h-[24px]';
   
-  // FIX: Restored Emojis rendering array
   const emojis = ['👍', '👎', '❤️', '✅', '👀'];
   
   emojis.forEach(emoji => {
