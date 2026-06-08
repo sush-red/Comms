@@ -10,12 +10,9 @@ let savedCursorPos = 0;
 let unreadMentionsCount = 0;
 const mutedRooms = new Set();
 
-// Pagination State
 let currentOffset = 0;
 let isFetchingHistory = false;
 let hasMoreHistory = true;
-
-// Typing State
 let typingTimeout = null;
 
 let attachedFileData = null;
@@ -44,8 +41,6 @@ const headerTitleText = document.getElementById('header-title-text');
 const mentionDropdown = document.getElementById('mention-dropdown');
 const typingIndicator = document.getElementById('typing-indicator');
 const typingText = document.getElementById('typing-text');
-
-// Search Elements
 const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
 
@@ -71,7 +66,6 @@ socket.on('room users', (users) => {
     updateOnlineStatusUI();
 });
 
-// UPGRADED: Add green dot for online users
 function updateOnlineStatusUI() {
     document.querySelectorAll('#dm-list .channel-item').forEach(item => {
         const roomName = item.getAttribute('data-room');
@@ -109,6 +103,7 @@ mentionsHub.addEventListener('click', (e) => {
     if (!isVisible) { unreadMentionsCount = 0; mentionsBadge.style.display = 'none'; }
     e.stopPropagation();
 });
+
 document.addEventListener('click', () => {
     mentionsDropdown.style.display = 'none';
     searchResults.style.display = 'none';
@@ -155,11 +150,9 @@ function addChannelToSidebar(roomName, targetList) {
     const li = document.createElement('li');
     li.className = 'channel-item flex items-center justify-between gap-3 text-on-secondary/70 px-3 py-2 hover:bg-on-secondary-container/10 rounded-lg cursor-pointer border-l-4 border-transparent';
     li.setAttribute('data-room', roomName);
-    
     const isDM = roomName.startsWith('DM-');
     const dmUser = isDM ? roomName.replace('DM-', '').split('-').find(u => u !== username) : '';
-    const displayName = isDM ? `💬 <span class="dm-name-span">${dmUser}</span>` : `# ${roomName}`;
-        
+    const displayName = isDM ? ` <span class="dm-name-span">${dmUser}</span>` : `# ${roomName}`;
     li.innerHTML = `<div class="flex items-center gap-3"><span class="font-label-md text-label-md">${displayName}</span></div> <span class="unread-badge bg-unread-coral text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center" style="display: none;">0</span>`;
     li.addEventListener('click', function() { switchRoom(this); });
     targetList.appendChild(li);
@@ -178,7 +171,7 @@ function ensureSidebarItemExists(room, fromUser) {
 function joinRoom(newRoom) {
     currentOffset = 0;
     hasMoreHistory = true;
-    messages.innerHTML = ''; 
+    messages.innerHTML = '';
     socket.emit('join room', { room: newRoom, username: username }); 
     currentRoom = newRoom;
 }
@@ -198,7 +191,7 @@ function switchRoom(element) {
     
     if (newRoom.startsWith('DM-')) {
         const otherUser = newRoom.replace('DM-', '').split('-').find(u => u !== username);
-        headerTitleText.textContent = `💬 ${otherUser}`;
+        headerTitleText.textContent = ` ${otherUser}`;
     } else {
         headerTitleText.textContent = `# ${newRoom}`;
     }
@@ -215,7 +208,6 @@ function switchRoom(element) {
     joinRoom(newRoom);
 }
 
-// NEW: Infinite Scroll Pagination Logic
 messages.addEventListener('scroll', () => {
     if (messages.scrollTop === 0 && !isFetchingHistory && hasMoreHistory) {
         isFetchingHistory = true;
@@ -233,7 +225,6 @@ function openDirectMessage(targetUser) {
     switchRoom(targetEl);
 }
 
-// NEW: Enterprise Search Logic
 let searchTimeout;
 searchInput.addEventListener('input', (e) => {
     clearTimeout(searchTimeout);
@@ -244,7 +235,7 @@ searchInput.addEventListener('input', (e) => {
     }
     searchTimeout = setTimeout(() => {
         socket.emit('search messages', query);
-    }, 300); // Debounce to prevent spamming DB
+    }, 300); 
 });
 
 searchResults.addEventListener('click', (e) => e.stopPropagation());
@@ -298,20 +289,22 @@ document.getElementById('submit-channel-btn').addEventListener('click', () => {
 
 socket.on('new custom channel', (channelName) => { addChannelToSidebar(channelName, channelList); });
 
-// NEW: Typing Event Listener
 input.addEventListener('input', () => {
-    // Mentions logic
     savedCursorPos = input.selectionStart;
     const val = input.value;
-    const match = val.substring(0, savedCursorPos).match(/(?:^|\s)@([a-zA-Z0-9_]*)$/);
+    const match = val.substring(0, savedCursorPos).match(/(?:^|\s)@([a-zA-Z0-9_ ]*)$/);
+
     if (match) {
         const searchTerm = match[1].toLowerCase();
+        // FIX: The mention dropdown will correctly filter using the restored availableUsers list
         filteredUsers = availableUsers.filter(u => u.toLowerCase().startsWith(searchTerm));
+        
         if (filteredUsers.length > 0) buildMentionDropdown();
         else closeMentionDropdown();
-    } else closeMentionDropdown();
-
-    // Broadcast Typing Status
+    } else {
+        closeMentionDropdown();
+    }
+    
     socket.emit('typing', { room: currentRoom, username: username });
     clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => {
@@ -319,16 +312,15 @@ input.addEventListener('input', () => {
     }, 1500);
 });
 
-// Listen for typing events
 socket.on('user typing', (typist) => {
     typingText.textContent = `${typist} is typing...`;
     typingIndicator.classList.remove('hidden');
 });
+
 socket.on('user stopped typing', () => {
     typingIndicator.classList.add('hidden');
 });
 
-// Mention Builder functions...
 function buildMentionDropdown() {
   mentionDropdown.innerHTML = '';
   mentionDropdown.style.display = 'block';
@@ -487,7 +479,10 @@ function displayMessage(data, isHistory = false, prepend = false) {
   
   const reactionBar = document.createElement('div');
   reactionBar.className = 'flex gap-1 mt-1 min-h-[24px]';
+  
+  // FIX: Restored Emojis rendering array
   const emojis = ['👍', '👎', '❤️', '✅', '👀'];
+  
   emojis.forEach(emoji => {
     const btn = document.createElement('button');
     btn.className = 'relative bg-surface-container-lowest border border-border-subtle rounded-full px-2 py-0.5 text-xs cursor-pointer hover:bg-surface-container-low hidden group/react';
@@ -513,7 +508,7 @@ function displayMessage(data, isHistory = false, prepend = false) {
   });
 
   contentCol.appendChild(reactionBar);
-
+  
   if (!isMe) {
       const avatarDiv = document.createElement('div');
       avatarDiv.className = 'w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary font-bold mb-6';
@@ -523,7 +518,6 @@ function displayMessage(data, isHistory = false, prepend = false) {
   
   container.appendChild(contentCol);
 
-  // Pagination Logic: Prepend or Append
   if (prepend) {
       messages.prepend(container);
   } else {
@@ -541,7 +535,6 @@ form.addEventListener('submit', function(e) {
     if (replyingToMessage !== null) payload.replyTo = replyingToMessage;
     
     socket.emit('chat message', payload);
-    // Clear typing indicator immediately on send
     socket.emit('stop typing', { room: currentRoom, username: username });
     input.value = ''; clearAttachment(); clearReply(); closeMentionDropdown();
   }
@@ -554,16 +547,10 @@ socket.on('chat history', function(historyArray) {
     historyArray.forEach(messageData => displayMessage(messageData, true, false)); 
 });
 
-// NEW: Handle Pagination Results
 socket.on('older messages', function(historyArray) {
     if (historyArray.length < 50) hasMoreHistory = false;
-    
     const previousScrollHeight = messages.scrollHeight;
-    
-    // Reverse the array again so they prepend in the correct chronological order
     historyArray.reverse().forEach(messageData => displayMessage(messageData, true, true));
-    
-    // Adjust scroll position so the screen doesn't jump to the top
     messages.scrollTop = messages.scrollHeight - previousScrollHeight;
     isFetchingHistory = false;
 });

@@ -2,13 +2,11 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const sqlite3 = require('sqlite3').verbose();
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static('public'));
-
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
@@ -50,7 +48,6 @@ io.on('connection', (socket) => {
         io.emit('room users', activeUsers);
     });
 
-    // UPGRADED: Pagination support (LIMIT 50)
     socket.on('join room', (data) => {
         const roomToJoin = data.room;
         socket.currentRoom = roomToJoin;
@@ -60,15 +57,21 @@ io.on('connection', (socket) => {
         });
         socket.join(roomToJoin);
 
+        // Fetch History
         db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp DESC LIMIT 50", [roomToJoin], (err, rows) => {
             if (err) return console.error(err);
-            // Reverse so oldest is at the top of the batch
             const history = rows.reverse().map(formatMessageRow);
             socket.emit('chat history', history);
         });
+
+        // FIX: Broadcast the list of users currently in this room to the frontend safely
+        const clients = io.sockets.adapter.rooms.get(roomToJoin);
+        if (clients) {
+            const usersInRoom = Array.from(clients).map(id => io.sockets.sockets.get(id)?.username).filter(Boolean);
+            io.to(roomToJoin).emit('room users', usersInRoom);
+        }
     });
 
-    // NEW: Load older messages when scrolling up
     socket.on('load more messages', (data) => {
         db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp DESC LIMIT 50 OFFSET ?", [data.room, data.offset], (err, rows) => {
             if (err || rows.length === 0) return;
@@ -77,7 +80,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // NEW: Enterprise Search Query
     socket.on('search messages', (query) => {
         const searchQuery = `%${query}%`;
         db.all("SELECT * FROM messages WHERE text LIKE ? ORDER BY timestamp DESC LIMIT 20", [searchQuery], (err, rows) => {
@@ -87,7 +89,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // NEW: Typing Indicators
     socket.on('typing', (data) => { socket.to(data.room).emit('user typing', data.username); });
     socket.on('stop typing', (data) => { socket.to(data.room).emit('user stopped typing', data.username); });
 
@@ -100,6 +101,7 @@ io.on('connection', (socket) => {
 
     socket.on('chat message', (data) => {
         data.id = Math.random().toString(36).substr(2, 9);
+        // FIX: Restored Emojis
         data.reactions = { '👍': [], '👎': [], '❤️': [], '✅': [], '👀': [] };
         
         io.to(data.room).emit('chat message', data);
@@ -109,7 +111,6 @@ io.on('connection', (socket) => {
         db.run(`INSERT INTO messages (id, room, user, text, file_name, file_type, file_data, reply_to_id, reply_to_user, reply_to_text, reactions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
             [data.id, data.room, data.user, data.text, file.name, file.type, file.data, reply.id, reply.user, reply.text, JSON.stringify(data.reactions)]);
 
-        // Broadcast unread alerts (skipping the sender)
         if (data.room.startsWith('DM-')) {
             const users = data.room.replace('DM-', '').split('-');
             users.forEach(u => { if (u !== data.user) io.to(u).emit('unread alert', data); });
@@ -129,6 +130,8 @@ io.on('connection', (socket) => {
             if (err || !row) return;
             let reactions = JSON.parse(row.reactions);
             let usersArray = reactions[reactionData.emoji];
+            if (!usersArray) return; 
+
             const userIndex = usersArray.indexOf(reactionData.username);
             if (userIndex === -1) usersArray.push(reactionData.username);
             else usersArray.splice(userIndex, 1);
@@ -154,6 +157,7 @@ function formatMessageRow(row) {
         id: row.id, user: row.user, text: row.text, room: row.room,
         file: row.file_name ? { name: row.file_name, type: row.file_type, data: row.file_data } : null,
         replyTo: row.reply_to_id ? { id: row.reply_to_id, user: row.reply_to_user, text: row.reply_to_text } : null,
+        // FIX: Restored Emojis Fallback
         reactions: JSON.parse(row.reactions || '{"👍":[],"👎":[],"❤️":[],"✅":[],"👀":[]}'),
         timestamp: row.timestamp
     };
