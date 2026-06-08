@@ -24,19 +24,21 @@ db.serialize(() => {
         reactions TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
     db.run(`CREATE TABLE IF NOT EXISTS custom_channels (name TEXT PRIMARY KEY, members TEXT)`);
-    // NEW: Persistent User Directory
     db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, role TEXT)`);
+    
+    // Non-destructive migrations
+    db.run(`ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE messages ADD COLUMN is_pinned INTEGER DEFAULT 0`, () => {});
+    // NEW: Array to track who has deleted the message for themselves
+    db.run(`ALTER TABLE messages ADD COLUMN deleted_for TEXT DEFAULT '[]'`, () => {});
 });
 
 io.on('connection', (socket) => {
-    console.log('A user connected!');
-
     socket.on('login', (data) => {
         socket.username = data.username;
         socket.role = data.role;
         socket.join(data.username); 
 
-        // Add user to the permanent directory
         db.run("INSERT OR IGNORE INTO users (username, role) VALUES (?, ?)", [data.username, data.role]);
 
         db.all("SELECT * FROM custom_channels", [], (err, rows) => {
@@ -48,7 +50,6 @@ io.on('connection', (socket) => {
             }
         });
 
-        // Broadcast global online status
         const activeUsers = Array.from(io.sockets.sockets.values()).map(s => s.username).filter(Boolean);
         io.emit('global presence', activeUsers);
     });
@@ -64,11 +65,11 @@ io.on('connection', (socket) => {
 
         db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp DESC LIMIT 50", [roomToJoin], (err, rows) => {
             if (err) return console.error(err);
-            const history = rows.reverse().map(formatMessageRow);
+            // Filter out messages the user has deleted for themselves
+            const history = rows.reverse().map(formatMessageRow).filter(msg => !msg.deleted_for.includes(socket.username));
             socket.emit('chat history', history);
         });
 
-        // Determine Mentionable Directory for this specific room
         if (roomToJoin.startsWith('DM-')) {
             const mentionable = roomToJoin.replace('DM-', '').split('-');
             socket.emit('room directory', mentionable);
@@ -77,7 +78,6 @@ io.on('connection', (socket) => {
                 if (row) {
                     socket.emit('room directory', JSON.parse(row.members));
                 } else {
-                    // It's a public channel (General, etc.), everyone can be mentioned
                     db.all("SELECT username FROM users", [], (err, rows) => {
                         if (!err) io.to(roomToJoin).emit('room directory', rows.map(r => r.username));
                     });
@@ -85,7 +85,6 @@ io.on('connection', (socket) => {
             });
         }
         
-        // Broadcast local online status for this room
         const clients = io.sockets.adapter.rooms.get(roomToJoin);
         if (clients) {
             const usersInRoom = Array.from(clients).map(id => io.sockets.sockets.get(id)?.username).filter(Boolean);
@@ -93,17 +92,60 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Delete for Everyone
+    socket.on('delete message', (data) => {
+        db.get("SELECT timestamp, user FROM messages WHERE id = ?", [data.msgId], (err, row) => {
+            if (err || !row) return;
+            if (row.user !== socket.username && socket.role !== 'admin' && socket.role !== 'central') return;
+
+            const msgTime = new Date(row.timestamp + 'Z').getTime();
+            if (Date.now() - msgTime <= 30 * 60 * 1000) {
+                db.run("UPDATE messages SET is_deleted = 1 WHERE id = ?", [data.msgId], (err) => {
+                    if (!err) io.to(data.room).emit('message deleted', data.msgId);
+                });
+            }
+        });
+    });
+
+    // NEW: Delete for Me
+    socket.on('delete for me', (data) => {
+        db.get("SELECT deleted_for FROM messages WHERE id = ?", [data.msgId], (err, row) => {
+            if (err || !row) return;
+            let deletedForArray = JSON.parse(row.deleted_for || '[]');
+            if (!deletedForArray.includes(socket.username)) {
+                deletedForArray.push(socket.username);
+                db.run("UPDATE messages SET deleted_for = ? WHERE id = ?", [JSON.stringify(deletedForArray), data.msgId], (err) => {
+                    if (!err) socket.emit('message deleted for me', data.msgId);
+                });
+            }
+        });
+    });
+
+    socket.on('toggle pin', (data) => {
+        db.get("SELECT is_pinned FROM messages WHERE id = ?", [data.msgId], (err, row) => {
+            if (err || !row) return;
+            const newStatus = row.is_pinned ? 0 : 1;
+            db.run("UPDATE messages SET is_pinned = ? WHERE id = ?", [newStatus, data.msgId], (err) => {
+                if (!err) io.to(data.room).emit('update pin', { msgId: data.msgId, isPinned: newStatus, msgData: data.msgData });
+            });
+        });
+    });
+
     socket.on('load more messages', (data) => {
         db.all("SELECT * FROM messages WHERE room = ? ORDER BY timestamp DESC LIMIT 50 OFFSET ?", [data.room, data.offset], (err, rows) => {
             if (err || rows.length === 0) return;
-            socket.emit('older messages', rows.reverse().map(formatMessageRow));
+            const olderHistory = rows.reverse().map(formatMessageRow).filter(msg => !msg.deleted_for.includes(socket.username));
+            socket.emit('older messages', olderHistory);
         });
     });
 
     socket.on('search messages', (query) => {
         const searchQuery = `%${query}%`;
-        db.all("SELECT * FROM messages WHERE text LIKE ? ORDER BY timestamp DESC LIMIT 20", [searchQuery], (err, rows) => {
-            if (!err) socket.emit('search results', rows.map(formatMessageRow));
+        db.all("SELECT * FROM messages WHERE text LIKE ? AND is_deleted = 0 ORDER BY timestamp DESC LIMIT 20", [searchQuery], (err, rows) => {
+            if (!err) {
+                const results = rows.map(formatMessageRow).filter(msg => !msg.deleted_for.includes(socket.username));
+                socket.emit('search results', results);
+            }
         });
     });
 
@@ -175,7 +217,10 @@ function formatMessageRow(row) {
         file: row.file_name ? { name: row.file_name, type: row.file_type, data: row.file_data } : null,
         replyTo: row.reply_to_id ? { id: row.reply_to_id, user: row.reply_to_user, text: row.reply_to_text } : null,
         reactions: JSON.parse(row.reactions || '{"👍":[],"👎":[],"❤️":[],"✅":[],"👀":[]}'),
-        timestamp: row.timestamp
+        timestamp: row.timestamp,
+        is_deleted: row.is_deleted,
+        is_pinned: row.is_pinned,
+        deleted_for: JSON.parse(row.deleted_for || '[]')
     };
 }
 

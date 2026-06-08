@@ -3,8 +3,8 @@ let username = "Anonymous";
 let userRole = "user"; 
 let currentRoom = "General";
 
-let availableUsers = []; // Online users for green dots
-let mentionableUsers = []; // All users allowed in channel for @ tagging
+let availableUsers = []; 
+let mentionableUsers = []; 
 let filteredUsers = [];
 let selectedMentionIndex = 0;
 let savedCursorPos = 0; 
@@ -18,6 +18,7 @@ let typingTimeout = null;
 
 let attachedFileData = null;
 let replyingToMessage = null;
+let pinnedMessagesMap = new Map(); 
 
 const loginOverlay = document.getElementById('login-overlay');
 const usernameInput = document.getElementById('username-input');
@@ -45,6 +46,13 @@ const typingText = document.getElementById('typing-text');
 const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
 
+const mainContent = document.querySelector('main');
+const header = document.querySelector('header');
+const pinnedBanner = document.createElement('div');
+pinnedBanner.id = 'pinned-banner';
+pinnedBanner.className = 'hidden bg-surface-container border-b border-border-subtle p-2 flex-col gap-1 text-sm z-10 w-full max-h-[150px] overflow-y-auto shadow-sm';
+mainContent.insertBefore(pinnedBanner, header.nextSibling);
+
 joinBtn.addEventListener('click', () => {
   const enteredName = usernameInput.value.trim();
   if (enteredName !== "") {
@@ -62,13 +70,11 @@ socket.on('login success', (data) => {
     data.customChannels.forEach(ch => addChannelToSidebar(ch, channelList));
 });
 
-// NEW: Global online status for green dots
 socket.on('global presence', (users) => {
     availableUsers = users.filter(u => u !== username);
     updateOnlineStatusUI();
 });
 
-// NEW: Permanent directory for @ mentions
 socket.on('room directory', (users) => {
     mentionableUsers = users.filter(u => u !== username);
 });
@@ -178,6 +184,8 @@ function ensureSidebarItemExists(room, fromUser) {
 function joinRoom(newRoom) {
     currentOffset = 0;
     hasMoreHistory = true;
+    pinnedMessagesMap.clear();
+    updatePinnedBanner();
     messages.innerHTML = '';
     socket.emit('join room', { room: newRoom, username: username }); 
     currentRoom = newRoom;
@@ -278,7 +286,6 @@ socket.on('search results', (results) => {
 
 createChannelBtn.addEventListener('click', () => {
     userSelectList.innerHTML = ''; 
-    // Uses the permanent directory for creating channels
     mentionableUsers.forEach(u => {
         userSelectList.innerHTML += `<label class="flex items-center gap-2 mb-1 text-sm cursor-pointer hover:bg-white p-1 rounded"><input type="checkbox" value="${u}"> ${u}</label>`;
     });
@@ -304,14 +311,10 @@ input.addEventListener('input', () => {
 
     if (match) {
         const searchTerm = match[1].toLowerCase();
-        // FIX: Now filters using the permanent mentionableUsers list
         filteredUsers = mentionableUsers.filter(u => u.toLowerCase().startsWith(searchTerm));
-        
         if (filteredUsers.length > 0) buildMentionDropdown();
         else closeMentionDropdown();
-    } else {
-        closeMentionDropdown();
-    }
+    } else closeMentionDropdown();
     
     socket.emit('typing', { room: currentRoom, username: username });
     clearTimeout(typingTimeout);
@@ -412,6 +415,49 @@ function playDing() {
   oscillator.start(); oscillator.stop(audioCtx.currentTime + 0.15); 
 }
 
+function updatePinnedBanner() {
+    pinnedBanner.innerHTML = '';
+    if (pinnedMessagesMap.size === 0) {
+        pinnedBanner.classList.add('hidden');
+        return;
+    }
+    pinnedBanner.classList.remove('hidden');
+    pinnedBanner.classList.add('flex');
+    pinnedMessagesMap.forEach((msgData, id) => {
+        const pinRow = document.createElement('div');
+        pinRow.className = 'flex items-center justify-between p-2 bg-surface-container-low rounded hover:bg-white cursor-pointer border border-border-subtle transition-colors';
+        pinRow.innerHTML = `<div class="flex items-center gap-2 text-primary font-body-sm line-clamp-1"><span class="material-symbols-outlined text-[14px]">keep</span> <strong>${msgData.user}:</strong> <span class="text-on-surface-variant">${msgData.text || 'Attachment'}</span></div>`;
+        pinRow.addEventListener('click', () => {
+            const el = document.getElementById(`msg-${id}`);
+            if(el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('ring-2', 'ring-primary');
+                setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 1500);
+            }
+        });
+        pinnedBanner.appendChild(pinRow);
+    });
+}
+
+// NEW: Tooltip Builder Function
+function createHoverAction(icon, tooltipText, onClick, isDanger = false) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'relative group/action';
+    
+    const btn = document.createElement('button');
+    btn.className = `p-1.5 hover:bg-surface-container-low rounded-md text-on-surface-variant transition-colors ${isDanger ? 'hover:text-error' : 'hover:text-primary'}`;
+    btn.innerHTML = `<span class="material-symbols-outlined text-[16px]">${icon}</span>`;
+    btn.addEventListener('click', onClick);
+    
+    const tooltip = document.createElement('div');
+    tooltip.className = 'absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-sidebar-bg text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover/action:opacity-100 pointer-events-none whitespace-nowrap z-20';
+    tooltip.textContent = tooltipText;
+
+    wrapper.appendChild(btn);
+    wrapper.appendChild(tooltip);
+    return wrapper;
+}
+
 function displayMessage(data, isHistory = false, prepend = false) {
   const container = document.createElement('li');
   const isMe = (data.user === username);
@@ -419,6 +465,10 @@ function displayMessage(data, isHistory = false, prepend = false) {
   const messageId = data.id || Math.random().toString(36).substr(2, 9);
   container.id = `msg-${messageId}`;
   
+  if (data.is_pinned && isHistory) {
+      pinnedMessagesMap.set(messageId, data);
+  }
+
   const contentCol = document.createElement('div');
   contentCol.className = isMe ? 'flex flex-col gap-1 items-end' : 'flex flex-col gap-1';
 
@@ -434,87 +484,101 @@ function displayMessage(data, isHistory = false, prepend = false) {
   const bubble = document.createElement('div');
   bubble.className = isMe ? 'bg-outgoing-blue text-on-surface p-3 md:p-4 rounded-bubble-outgoing border border-primary/10 relative shadow-sm' : 'bg-surface-container-lowest text-on-surface p-3 md:p-4 rounded-bubble-incoming shadow-ambient border border-border-subtle/50 relative';
   
-  if (data.replyTo) {
-      const quoteDiv = document.createElement('div');
-      quoteDiv.className = 'bg-white/60 border-l-2 border-primary pl-3 pr-2 py-2 mb-2 rounded-r-md text-sm cursor-pointer hover:bg-white/80 transition-colors';
-      quoteDiv.addEventListener('click', () => {
-          const originalMsg = document.getElementById(`msg-${data.replyTo.id}`);
-          if (originalMsg) {
-              originalMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              originalMsg.classList.add('ring-2', 'ring-primary', 'transition-all');
-              setTimeout(() => originalMsg.classList.remove('ring-2', 'ring-primary'), 1500);
-          }
-      });
-      quoteDiv.innerHTML = `<p class="font-label-sm text-primary mb-1">${data.replyTo.user}</p><p class="font-body-sm text-on-surface-variant line-clamp-1">${data.replyTo.text}</p>`;
-      bubble.appendChild(quoteDiv);
-  }
-  
-  if (data.text) {
-      const textDiv = document.createElement('p');
-      textDiv.className = 'font-body-md text-body-md';
-      if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
-        bubble.classList.add('ring-2', 'ring-mention-gold'); 
-        if (!isMe && !isHistory) processMentionAlert(data);
-      } else if (!isMe && !mutedRooms.has(currentRoom) && !isHistory) playDing(); 
-      textDiv.textContent = data.text;
-      bubble.appendChild(textDiv);
-  } else if (!isMe && !mutedRooms.has(currentRoom) && !isHistory) playDing(); 
-  
-  if (data.file) {
-      if (data.file.type.startsWith('image/')) {
-          const img = document.createElement('img');
-          img.src = data.file.data; img.className = 'max-w-[250px] rounded-lg mt-2 cursor-pointer border border-border-subtle';
-          img.addEventListener('click', () => window.open(data.file.data, '_blank'));
-          bubble.appendChild(img);
-      } else {
-          const link = document.createElement('div');
-          link.className = 'bg-surface-container-low border border-border-subtle rounded-lg p-3 flex items-center gap-4 cursor-pointer hover:bg-surface-container transition-colors mt-2';
-          link.innerHTML = `<div class="w-10 h-10 bg-primary/10 rounded flex items-center justify-center text-primary"><span class="material-symbols-outlined fill">insert_drive_file</span></div><div class="flex-1"><h4 class="font-label-md text-label-md text-on-surface">${data.file.name}</h4></div><a href="${data.file.data}" download="${data.file.name}" class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined">download</span></a>`;
-          bubble.appendChild(link);
+  if (data.is_deleted) {
+      bubble.innerHTML = '<p class="text-on-surface-variant italic font-body-sm flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">block</span> This message was deleted</p>';
+      contentCol.appendChild(bubble);
+  } else {
+      if (data.replyTo) {
+          const quoteDiv = document.createElement('div');
+          quoteDiv.className = 'bg-white/60 border-l-2 border-primary pl-3 pr-2 py-2 mb-2 rounded-r-md text-sm cursor-pointer hover:bg-white/80 transition-colors';
+          quoteDiv.addEventListener('click', () => {
+              const originalMsg = document.getElementById(`msg-${data.replyTo.id}`);
+              if (originalMsg) {
+                  originalMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  originalMsg.classList.add('ring-2', 'ring-primary', 'transition-all');
+                  setTimeout(() => originalMsg.classList.remove('ring-2', 'ring-primary'), 1500);
+              }
+          });
+          quoteDiv.innerHTML = `<p class="font-label-sm text-primary mb-1">${data.replyTo.user}</p><p class="font-body-sm text-on-surface-variant line-clamp-1">${data.replyTo.text}</p>`;
+          bubble.appendChild(quoteDiv);
       }
+      
+      if (data.text) {
+          const textDiv = document.createElement('p');
+          textDiv.className = 'font-body-md text-body-md';
+          if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
+            bubble.classList.add('ring-2', 'ring-mention-gold'); 
+            if (!isMe && !isHistory) processMentionAlert(data);
+          } else if (!isMe && !mutedRooms.has(currentRoom) && !isHistory) playDing(); 
+          textDiv.textContent = data.text;
+          bubble.appendChild(textDiv);
+      } else if (!isMe && !mutedRooms.has(currentRoom) && !isHistory) playDing(); 
+      
+      if (data.file) {
+          if (data.file.type.startsWith('image/')) {
+              const img = document.createElement('img');
+              img.src = data.file.data; img.className = 'max-w-[250px] rounded-lg mt-2 cursor-pointer border border-border-subtle';
+              img.addEventListener('click', () => window.open(data.file.data, '_blank'));
+              bubble.appendChild(img);
+          } else {
+              const link = document.createElement('div');
+              link.className = 'bg-surface-container-low border border-border-subtle rounded-lg p-3 flex items-center gap-4 cursor-pointer hover:bg-surface-container transition-colors mt-2';
+              link.innerHTML = `<div class="w-10 h-10 bg-primary/10 rounded flex items-center justify-center text-primary"><span class="material-symbols-outlined fill">insert_drive_file</span></div><div class="flex-1"><h4 class="font-label-md text-label-md text-on-surface">${data.file.name}</h4></div><a href="${data.file.data}" download="${data.file.name}" class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined">download</span></a>`;
+              bubble.appendChild(link);
+          }
+      }
+
+      const hoverActions = document.createElement('div');
+      hoverActions.className = `absolute -top-4 ${isMe ? '-left-6' : '-right-6'} bg-surface border border-border-subtle rounded-lg shadow-sm flex items-center p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10`;
+      
+      // NEW: Implementing Tooltips and Delete For Me logic
+      hoverActions.appendChild(createHoverAction('reply', 'Reply', () => setReply(data, data.text ? data.text : (data.file ? `[Attachment: ${data.file.name}]` : 'Message'))));
+      
+      const pinText = data.is_pinned ? 'Unpin message' : 'Pin message';
+      hoverActions.appendChild(createHoverAction('keep', pinText, () => socket.emit('toggle pin', { room: currentRoom, msgId: messageId, msgData: data })));
+      
+      // Everyone can delete for themselves
+      hoverActions.appendChild(createHoverAction('visibility_off', 'Delete for me', () => socket.emit('delete for me', { room: currentRoom, msgId: messageId })));
+
+      // Only sender can delete for everyone
+      if (isMe) {
+          hoverActions.appendChild(createHoverAction('delete', 'Delete for everyone', () => socket.emit('delete message', { room: currentRoom, msgId: messageId }), true));
+      }
+
+      bubble.appendChild(hoverActions);
+      contentCol.appendChild(bubble);
+      
+      const reactionBar = document.createElement('div');
+      reactionBar.className = 'flex gap-1 mt-1 min-h-[24px]';
+      
+      const emojis = ['👍', '👎', '❤️', '✅', '👀'];
+      
+      emojis.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.className = 'relative bg-surface-container-lowest border border-border-subtle rounded-full px-2 py-0.5 text-xs cursor-pointer hover:bg-surface-container-low hidden group/react';
+        btn.id = `btn-${messageId}-${emoji}`; 
+        const usersArray = data.reactions && data.reactions[emoji] ? data.reactions[emoji] : [];
+        const count = usersArray.length;
+        const tooltip = document.createElement('div');
+        tooltip.className = 'absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-sidebar-bg text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover/react:opacity-100 pointer-events-none whitespace-nowrap z-20';
+        tooltip.id = `tooltip-${messageId}-${emoji}`;
+        
+        if (count > 0) {
+          btn.classList.remove('hidden'); btn.classList.add('flex', 'items-center', 'gap-1');
+          if (usersArray.includes(username)) btn.classList.add('bg-primary/10', 'border-primary/30');
+          tooltip.innerHTML = usersArray.join(', ');
+        } else tooltip.innerHTML = `React with ${emoji}`;
+        
+        btn.innerHTML = `${emoji} <span class="font-bold text-on-surface-variant" id="count-${messageId}-${emoji}">${count > 0 ? count : ''}</span>`;
+        btn.appendChild(tooltip); 
+        btn.addEventListener('click', () => socket.emit('add reaction', { roomId: currentRoom, msgId: messageId, emoji: emoji, username: username }));
+        container.addEventListener('mouseenter', () => btn.classList.remove('hidden'));
+        container.addEventListener('mouseleave', () => { if (parseInt(document.getElementById(`count-${messageId}-${emoji}`).textContent || 0) === 0) btn.classList.add('hidden'); });
+        reactionBar.appendChild(btn);
+      });
+
+      contentCol.appendChild(reactionBar);
   }
-
-  const hoverActions = document.createElement('div');
-  hoverActions.className = `absolute -top-3 ${isMe ? '-left-3' : '-right-3'} bg-surface border border-border-subtle rounded-lg shadow-sm flex items-center p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10`;
-  const replyBtn = document.createElement('button');
-  replyBtn.className = 'p-1.5 hover:bg-surface-container-low rounded-md text-on-surface-variant hover:text-primary transition-colors';
-  replyBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">reply</span>';
-  replyBtn.addEventListener('click', () => setReply(data, data.text ? data.text : (data.file ? `[Attachment: ${data.file.name}]` : 'Message')));
-  hoverActions.appendChild(replyBtn);
-  bubble.appendChild(hoverActions);
-  
-  contentCol.appendChild(bubble);
-  
-  const reactionBar = document.createElement('div');
-  reactionBar.className = 'flex gap-1 mt-1 min-h-[24px]';
-  
-  const emojis = ['👍', '👎', '❤️', '✅', '👀'];
-  
-  emojis.forEach(emoji => {
-    const btn = document.createElement('button');
-    btn.className = 'relative bg-surface-container-lowest border border-border-subtle rounded-full px-2 py-0.5 text-xs cursor-pointer hover:bg-surface-container-low hidden group/react';
-    btn.id = `btn-${messageId}-${emoji}`; 
-    const usersArray = data.reactions && data.reactions[emoji] ? data.reactions[emoji] : [];
-    const count = usersArray.length;
-    const tooltip = document.createElement('div');
-    tooltip.className = 'absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-sidebar-bg text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover/react:opacity-100 pointer-events-none whitespace-nowrap z-20';
-    tooltip.id = `tooltip-${messageId}-${emoji}`;
-    
-    if (count > 0) {
-      btn.classList.remove('hidden'); btn.classList.add('flex', 'items-center', 'gap-1');
-      if (usersArray.includes(username)) btn.classList.add('bg-primary/10', 'border-primary/30');
-      tooltip.innerHTML = usersArray.join(', ');
-    } else tooltip.innerHTML = `React with ${emoji}`;
-    
-    btn.innerHTML = `${emoji} <span class="font-bold text-on-surface-variant" id="count-${messageId}-${emoji}">${count > 0 ? count : ''}</span>`;
-    btn.appendChild(tooltip); 
-    btn.addEventListener('click', () => socket.emit('add reaction', { roomId: currentRoom, msgId: messageId, emoji: emoji, username: username }));
-    container.addEventListener('mouseenter', () => btn.classList.remove('hidden'));
-    container.addEventListener('mouseleave', () => { if (parseInt(document.getElementById(`count-${messageId}-${emoji}`).textContent || 0) === 0) btn.classList.add('hidden'); });
-    reactionBar.appendChild(btn);
-  });
-
-  contentCol.appendChild(reactionBar);
   
   if (!isMe) {
       const avatarDiv = document.createElement('div');
@@ -532,6 +596,41 @@ function displayMessage(data, isHistory = false, prepend = false) {
       messages.scrollTop = messages.scrollHeight;
   }
 }
+
+socket.on('message deleted', (msgId) => {
+    const msgEl = document.getElementById(`msg-${msgId}`);
+    if (msgEl) {
+        const bubble = msgEl.querySelector('.rounded-bubble-outgoing') || msgEl.querySelector('.rounded-bubble-incoming');
+        if (bubble) {
+            bubble.innerHTML = '<p class="text-on-surface-variant italic font-body-sm flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">block</span> This message was deleted</p>';
+        }
+        const hoverActions = msgEl.querySelector('.absolute.-top-4');
+        if (hoverActions) hoverActions.remove();
+        const reactionBar = msgEl.querySelector('.min-h-\\[24px\\]');
+        if (reactionBar) reactionBar.remove();
+    }
+});
+
+// NEW: Handing the UI removal when "Delete for Me" is triggered
+socket.on('message deleted for me', (msgId) => {
+    const msgEl = document.getElementById(`msg-${msgId}`);
+    if (msgEl) msgEl.remove();
+    
+    // Also remove from pinned banner if it was pinned
+    if (pinnedMessagesMap.has(msgId)) {
+        pinnedMessagesMap.delete(msgId);
+        updatePinnedBanner();
+    }
+});
+
+socket.on('update pin', (data) => {
+    if (data.isPinned) {
+        pinnedMessagesMap.set(data.msgId, data.msgData);
+    } else {
+        pinnedMessagesMap.delete(data.msgId);
+    }
+    updatePinnedBanner();
+});
 
 form.addEventListener('submit', function(e) {
   e.preventDefault();
@@ -552,6 +651,7 @@ socket.on('chat message', function(data) { displayMessage(data, false, false); }
 socket.on('chat history', function(historyArray) { 
     if (historyArray.length < 50) hasMoreHistory = false;
     historyArray.forEach(messageData => displayMessage(messageData, true, false)); 
+    updatePinnedBanner(); 
 });
 
 socket.on('older messages', function(historyArray) {
