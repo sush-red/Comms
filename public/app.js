@@ -347,7 +347,7 @@ function playDing() {
 }
 
 // --- 7. MESSAGE RENDERING ---
-function displayMessage(data) {
+function displayMessage(data, isHistory = false) {
   const container = document.createElement('li');
   container.className = 'message-container';
   
@@ -397,15 +397,16 @@ function displayMessage(data) {
       
       if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
         bubble.classList.add('mentioned'); 
-        if (!isMe) processMentionAlert(data);
-      } else if (!isMe && !mutedRooms.has(currentRoom)) {
-        playDing(); // Play sound if not muted
+        if (!isMe && !isHistory) processMentionAlert(data); // Don't trigger alert on history
+      } else if (!isMe && !mutedRooms.has(currentRoom) && !isHistory) {
+        // NEW: Only play sound if NOT loading history
+        playDing();
       }
       bubble.appendChild(textDiv);
-  } else if (!isMe && !mutedRooms.has(currentRoom)) {
-      playDing(); // Play sound for attachments
+  } else if (!isMe && !mutedRooms.has(currentRoom) && !isHistory) {
+      // Play sound for files only if NOT loading history
+      playDing();
   }
-  
   if (data.file) {
       if (data.file.type.startsWith('image/')) {
           const img = document.createElement('img');
@@ -489,8 +490,10 @@ form.addEventListener('submit', function(e) {
   }
 });
 
-socket.on('chat message', function(data) { displayMessage(data); });
-socket.on('chat history', function(historyArray) { historyArray.forEach(messageData => displayMessage(messageData)); });
+socket.on('chat message', function(data) { displayMessage(data, false); });
+socket.on('chat history', function(historyArray) { 
+    historyArray.forEach(messageData => displayMessage(messageData, true)); 
+});
 
 socket.on('update reaction', function(data) {
   const btn = document.getElementById(`btn-${data.msgId}-${data.emoji}`);
