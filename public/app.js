@@ -8,8 +8,6 @@ let filteredUsers = [];
 let selectedMentionIndex = 0;
 let savedCursorPos = 0; 
 let unreadMentionsCount = 0;
-
-// NEW: Mute Tracking
 const mutedRooms = new Set();
 
 let attachedFileData = null;
@@ -38,7 +36,6 @@ const messages = document.getElementById('messages');
 const headerTitleText = document.getElementById('header-title-text');
 const mentionDropdown = document.getElementById('mention-dropdown');
 
-// --- 1. INITIALIZATION & LOGIN ---
 joinBtn.addEventListener('click', () => {
   const enteredName = usernameInput.value.trim();
   if (enteredName !== "") {
@@ -67,18 +64,16 @@ socket.on('room users', (users) => {
     availableUsers = users.filter(u => u !== username);
 });
 
-// --- 2. NOTIFICATIONS, MUTE & UNREAD BADGES ---
 muteBtn.addEventListener('click', () => {
+    const icon = muteBtn.querySelector('span');
     if (mutedRooms.has(currentRoom)) {
         mutedRooms.delete(currentRoom);
-        muteBtn.textContent = '🔔';
-        muteBtn.title = 'Mute Notifications';
-        muteBtn.classList.remove('muted');
+        icon.textContent = 'notifications';
+        muteBtn.classList.remove('text-unread-coral');
     } else {
         mutedRooms.add(currentRoom);
-        muteBtn.textContent = '🔕';
-        muteBtn.title = 'Unmute Notifications';
-        muteBtn.classList.add('muted');
+        icon.textContent = 'notifications_off';
+        muteBtn.classList.add('text-unread-coral');
     }
 });
 
@@ -98,18 +93,18 @@ function processMentionAlert(data) {
     
     unreadMentionsCount++;
     mentionsBadge.textContent = unreadMentionsCount;
-    mentionsBadge.style.display = 'block';
+    mentionsBadge.style.display = 'flex';
     
-    playDing(); // Mentions always ding
+    playDing();
 
     if (Notification.permission === "granted" && document.hidden) {
         new Notification(`Mention from ${data.user}`, { body: data.text });
     }
 
     const alertDiv = document.createElement('div');
-    alertDiv.className = 'mention-alert-item';
+    alertDiv.className = 'p-3 border-b border-border-subtle font-body-sm text-on-surface cursor-pointer hover:bg-surface-container-low transition-colors';
     const displayRoomName = data.room.startsWith('DM-') ? 'Direct Message' : `#${data.room}`;
-    alertDiv.innerHTML = `<div class="mention-alert-header">${data.user} in ${displayRoomName}</div>${data.text}`;
+    alertDiv.innerHTML = `<div class="font-bold text-primary mb-1">${data.user} in ${displayRoomName}</div>${data.text}`;
     
     alertDiv.addEventListener('click', () => {
         ensureSidebarItemExists(data.room, data.user);
@@ -137,23 +132,22 @@ socket.on('unread alert', (data) => {
     if (data.text && data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
         processMentionAlert(data);
     } else if (!mutedRooms.has(data.room) && data.user !== username) {
-        playDing(); // Play sound if channel is not muted
+        playDing(); 
     }
 });
 
-// --- 3. CHANNEL & DM MANAGEMENT ---
 function addChannelToSidebar(roomName, targetList) {
     if (document.querySelector(`.channel-item[data-room="${roomName}"]`)) return; 
     
     const li = document.createElement('li');
-    li.className = 'channel-item';
+    li.className = 'channel-item flex items-center justify-between gap-3 text-on-secondary/70 px-3 py-2 hover:bg-on-secondary-container/10 rounded-lg cursor-pointer border-l-4 border-transparent';
     li.setAttribute('data-room', roomName);
     
     const displayName = roomName.startsWith('DM-') 
         ? `💬 ${roomName.replace('DM-', '').split('-').find(u => u !== username)}` 
         : `# ${roomName}`;
         
-    li.innerHTML = `${displayName} <span class="unread-badge">0</span>`;
+    li.innerHTML = `<div class="flex items-center gap-3"><span class="font-label-md text-label-md">${displayName}</span></div> <span class="unread-badge bg-unread-coral text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center" style="display: none;">0</span>`;
     li.addEventListener('click', function() { switchRoom(this); });
     targetList.appendChild(li);
     return li;
@@ -167,10 +161,16 @@ function ensureSidebarItemExists(room, fromUser) {
 }
 
 function switchRoom(element) {
-    document.querySelector('.channel-item.active')?.classList.remove('active');
-    element.classList.add('active');
-    const newRoom = element.getAttribute('data-room');
+    const activeEl = document.querySelector('.channel-item.bg-secondary');
+    if (activeEl) {
+        activeEl.classList.remove('bg-secondary', 'border-primary', 'text-on-secondary');
+        activeEl.classList.add('text-on-secondary/70', 'border-transparent');
+    }
     
+    element.classList.remove('text-on-secondary/70', 'border-transparent');
+    element.classList.add('bg-secondary', 'border-primary', 'text-on-secondary');
+
+    const newRoom = element.getAttribute('data-room');
     const badge = element.querySelector('.unread-badge');
     if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
     
@@ -181,13 +181,13 @@ function switchRoom(element) {
         headerTitleText.textContent = `# ${newRoom}`;
     }
     
-    // Update the mute UI icon to match the new room's state
+    const icon = muteBtn.querySelector('span');
     if (mutedRooms.has(newRoom)) {
-        muteBtn.textContent = '🔕';
-        muteBtn.classList.add('muted');
+        icon.textContent = 'notifications_off';
+        muteBtn.classList.add('text-unread-coral');
     } else {
-        muteBtn.textContent = '🔔';
-        muteBtn.classList.remove('muted');
+        icon.textContent = 'notifications';
+        muteBtn.classList.remove('text-unread-coral');
     }
 
     messages.innerHTML = ''; 
@@ -196,7 +196,7 @@ function switchRoom(element) {
     clearReply(); 
 }
 
-document.querySelectorAll('#channel-list .channel-item').forEach(item => {
+document.querySelectorAll('.channel-item').forEach(item => {
     item.addEventListener('click', function() { switchRoom(this); });
 });
 
@@ -207,12 +207,11 @@ function openDirectMessage(targetUser) {
     switchRoom(targetEl);
 }
 
-// --- 4. ADMIN CUSTOM CHANNELS ---
 createChannelBtn.addEventListener('click', () => {
     userSelectList.innerHTML = ''; 
     availableUsers.forEach(u => {
         userSelectList.innerHTML += `
-            <label class="user-checkbox-item">
+            <label class="flex items-center gap-2 mb-1 text-sm cursor-pointer hover:bg-white p-1 rounded">
                 <input type="checkbox" value="${u}"> ${u}
             </label>`;
     });
@@ -235,7 +234,6 @@ socket.on('new custom channel', (channelName) => {
     addChannelToSidebar(channelName, channelList);
 });
 
-// --- 5. @ MENTIONS AUTOCOMPLETE ---
 input.addEventListener('keyup', () => { savedCursorPos = input.selectionStart; });
 input.addEventListener('click', () => { savedCursorPos = input.selectionStart; });
 
@@ -303,7 +301,6 @@ input.addEventListener('keydown', (e) => {
   }
 });
 
-// --- 6. ATTACHMENTS & REPLIES ---
 document.getElementById('attach-btn').addEventListener('click', () => { document.getElementById('file-input').click(); });
 
 window.clearAttachment = function() {
@@ -319,7 +316,7 @@ window.clearReply = function() {
 
 function setReply(data, previewText) {
   replyingToMessage = { id: data.id, user: data.user, text: previewText.length > 50 ? previewText.substring(0, 50) + '...' : previewText };
-  document.getElementById('reply-preview').innerHTML = `<button type="button" class="cancel-reply-btn" onclick="clearReply()">×</button><strong>Replying to ${data.user}</strong><br/>${replyingToMessage.text}`;
+  document.getElementById('reply-preview').innerHTML = `<button type="button" class="float-right text-error font-bold" onclick="clearReply()">×</button><strong>Replying to ${data.user}</strong><br/><span class="text-on-surface-variant">${replyingToMessage.text}</span>`;
   document.getElementById('reply-preview').style.display = 'block';
   input.focus();
 }
@@ -331,8 +328,8 @@ document.getElementById('file-input').addEventListener('change', function() {
   const reader = new FileReader();
   reader.onload = function(e) {
     attachedFileData = { name: file.name, type: file.type, data: e.target.result };
-    document.getElementById('attachment-preview').innerHTML = `📎 ${file.name} <button type="button" class="cancel-attach-btn" onclick="clearAttachment()" title="Remove attachment">×</button>`;
-    document.getElementById('attachment-preview').style.display = 'inline-flex';
+    document.getElementById('attachment-preview').innerHTML = `<span class="material-symbols-outlined text-[16px]">attach_file</span> ${file.name} <button type="button" class="text-error ml-2" onclick="clearAttachment()">×</button>`;
+    document.getElementById('attachment-preview').style.display = 'flex';
   };
   reader.readAsDataURL(file); 
 });
@@ -346,154 +343,186 @@ function playDing() {
   oscillator.start(); oscillator.stop(audioCtx.currentTime + 0.15); 
 }
 
-// --- 7. MESSAGE RENDERING ---
+// UPGRADED: Complete mapping to the new Stitch Design System
 function displayMessage(data, isHistory = false) {
   const container = document.createElement('li');
-  container.className = 'message-container';
-  
   const isMe = (data.user === username);
-  if (isMe) container.classList.add('me'); 
+  
+  // Apply Stitch's wrapper classes
+  container.className = isMe 
+      ? 'flex items-end justify-end gap-3 max-w-[85%] self-end group' 
+      : 'flex items-end gap-3 max-w-[85%] group';
 
   const messageId = data.id || Math.random().toString(36).substr(2, 9);
   container.id = `msg-${messageId}`;
   
-  const senderWrapper = document.createElement('div');
-  senderWrapper.className = 'message-sender-wrapper';
+  // Setup Avatar/Sender Column
+  const contentCol = document.createElement('div');
+  contentCol.className = isMe ? 'flex flex-col gap-1 items-end' : 'flex flex-col gap-1';
 
-  const sender = document.createElement('div');
-  sender.className = 'message-sender';
-  sender.textContent = isMe ? 'Me' : data.user;
-  senderWrapper.appendChild(sender);
-
+  // Sender Name Row
+  const nameRow = document.createElement('div');
+  nameRow.className = isMe ? 'flex items-baseline gap-2 mr-1' : 'flex items-baseline gap-2 ml-1';
+  
+  const senderName = document.createElement('span');
+  senderName.className = 'font-label-md text-label-md text-on-surface cursor-pointer hover:underline';
+  senderName.textContent = isMe ? 'You' : data.user;
+  
   if (!isMe) {
-      const hoverDmBtn = document.createElement('button');
-      hoverDmBtn.className = 'dm-hover-btn';
-      hoverDmBtn.textContent = '💬 Message';
-      hoverDmBtn.addEventListener('click', () => openDirectMessage(data.user));
-      senderWrapper.appendChild(hoverDmBtn);
+      senderName.addEventListener('click', () => openDirectMessage(data.user));
   }
+
+  nameRow.appendChild(senderName);
+  contentCol.appendChild(nameRow);
   
+  // The Bubble
   const bubble = document.createElement('div');
-  bubble.className = 'message-bubble';
+  bubble.className = isMe 
+      ? 'bg-outgoing-blue text-on-surface p-3 md:p-4 rounded-bubble-outgoing border border-primary/10 relative shadow-sm'
+      : 'bg-surface-container-lowest text-on-surface p-3 md:p-4 rounded-bubble-incoming shadow-ambient border border-border-subtle/50 relative';
   
+  // Reply Quote
   if (data.replyTo) {
       const quoteDiv = document.createElement('div');
-      quoteDiv.className = 'reply-quote';
+      quoteDiv.className = 'bg-white/60 border-l-2 border-primary pl-3 pr-2 py-2 mb-2 rounded-r-md text-sm cursor-pointer hover:bg-white/80 transition-colors';
       quoteDiv.addEventListener('click', () => {
           const originalMsg = document.getElementById(`msg-${data.replyTo.id}`);
           if (originalMsg) {
               originalMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              originalMsg.style.transition = 'background 0.5s'; originalMsg.style.backgroundColor = '#ffeaa7';
-              setTimeout(() => originalMsg.style.backgroundColor = 'transparent', 1500);
+              originalMsg.classList.add('ring-2', 'ring-primary', 'transition-all');
+              setTimeout(() => originalMsg.classList.remove('ring-2', 'ring-primary'), 1500);
           }
       });
-      quoteDiv.innerHTML = `<div class="reply-quote-sender">${data.replyTo.user}</div><div>${data.replyTo.text}</div>`;
+      quoteDiv.innerHTML = `<p class="font-label-sm text-primary mb-1">${data.replyTo.user}</p><p class="font-body-sm text-on-surface-variant line-clamp-1">${data.replyTo.text}</p>`;
       bubble.appendChild(quoteDiv);
   }
   
+  // Text Content
   if (data.text) {
-      const textDiv = document.createElement('div');
-      textDiv.textContent = data.text;
+      const textDiv = document.createElement('p');
+      textDiv.className = 'font-body-md text-body-md';
       
       if (data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
-        bubble.classList.add('mentioned'); 
-        if (!isMe && !isHistory) processMentionAlert(data); // Don't trigger alert on history
+        bubble.classList.add('ring-2', 'ring-mention-gold'); 
+        if (!isMe && !isHistory) processMentionAlert(data);
       } else if (!isMe && !mutedRooms.has(currentRoom) && !isHistory) {
-        // NEW: Only play sound if NOT loading history
-        playDing();
+        playDing(); 
       }
+      textDiv.textContent = data.text;
       bubble.appendChild(textDiv);
   } else if (!isMe && !mutedRooms.has(currentRoom) && !isHistory) {
-      // Play sound for files only if NOT loading history
-      playDing();
+      playDing(); 
   }
+  
+  // Attachments
   if (data.file) {
       if (data.file.type.startsWith('image/')) {
           const img = document.createElement('img');
-          img.src = data.file.data; img.className = 'message-image';
+          img.src = data.file.data; 
+          img.className = 'max-w-[250px] rounded-lg mt-2 cursor-pointer border border-border-subtle';
           img.addEventListener('click', () => window.open(data.file.data, '_blank'));
           bubble.appendChild(img);
       } else {
-          const link = document.createElement('a');
-          link.href = data.file.data; link.download = data.file.name;
-          link.textContent = `📄 Download ${data.file.name}`; link.className = 'message-file';
+          const link = document.createElement('div');
+          link.className = 'bg-surface-container-low border border-border-subtle rounded-lg p-3 flex items-center gap-4 cursor-pointer hover:bg-surface-container transition-colors mt-2';
+          link.innerHTML = `
+            <div class="w-10 h-10 bg-primary/10 rounded flex items-center justify-center text-primary">
+                <span class="material-symbols-outlined fill">insert_drive_file</span>
+            </div>
+            <div class="flex-1">
+                <h4 class="font-label-md text-label-md text-on-surface">${data.file.name}</h4>
+            </div>
+            <a href="${data.file.data}" download="${data.file.name}" class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined">download</span></a>
+          `;
           bubble.appendChild(link);
       }
   }
-  
-  container.appendChild(senderWrapper);
-  container.appendChild(bubble);
 
-  const reactionBar = document.createElement('div');
-  reactionBar.className = 'reaction-bar';
+  // Hover Actions (Stitch Design)
+  const hoverActions = document.createElement('div');
+  hoverActions.className = `absolute -top-3 ${isMe ? '-left-3' : '-right-3'} bg-surface border border-border-subtle rounded-lg shadow-sm flex items-center p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10`;
   
   const replyBtn = document.createElement('button');
-  replyBtn.className = 'reaction-btn'; replyBtn.innerHTML = '↩️'; replyBtn.title = 'Reply';
+  replyBtn.className = 'p-1.5 hover:bg-surface-container-low rounded-md text-on-surface-variant hover:text-primary transition-colors';
+  replyBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">reply</span>';
   replyBtn.addEventListener('click', () => {
       setReply(data, data.text ? data.text : (data.file ? `[Attachment: ${data.file.name}]` : 'Message'));
   });
-  reactionBar.appendChild(replyBtn);
-
-  const emojis = ['👍', '👎', '❤️', '✅', '👀'];
+  hoverActions.appendChild(replyBtn);
+  bubble.appendChild(hoverActions);
   
+  contentCol.appendChild(bubble);
+  
+  // Reactions Bar
+  const reactionBar = document.createElement('div');
+  reactionBar.className = 'flex gap-1 mt-1 min-h-[24px]';
+  
+  const emojis = ['👍', '👎', '❤️', '✅', '👀'];
   emojis.forEach(emoji => {
     const btn = document.createElement('button');
-    btn.className = 'reaction-btn'; btn.id = `btn-${messageId}-${emoji}`; 
+    btn.className = 'relative bg-surface-container-lowest border border-border-subtle rounded-full px-2 py-0.5 text-xs cursor-pointer hover:bg-surface-container-low hidden group/react';
+    btn.id = `btn-${messageId}-${emoji}`; 
     
     const usersArray = data.reactions && data.reactions[emoji] ? data.reactions[emoji] : [];
     const count = usersArray.length;
     
     const tooltip = document.createElement('div');
-    tooltip.className = 'reaction-tooltip'; tooltip.id = `tooltip-${messageId}-${emoji}`;
+    tooltip.className = 'absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-sidebar-bg text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover/react:opacity-100 pointer-events-none whitespace-nowrap z-20';
+    tooltip.id = `tooltip-${messageId}-${emoji}`;
     
     if (count > 0) {
-      btn.classList.add('has-reactions');
-      tooltip.innerHTML = usersArray.map(u => `<div class="tooltip-row">${u}</div>`).join('');
+      btn.classList.remove('hidden');
+      btn.classList.add('flex', 'items-center', 'gap-1');
+      if (usersArray.includes(username)) btn.classList.add('bg-primary/10', 'border-primary/30');
+      tooltip.innerHTML = usersArray.join(', ');
     } else {
-      tooltip.innerHTML = `<div class="tooltip-row">React with ${emoji}</div>`;
+      tooltip.innerHTML = `React with ${emoji}`;
     }
     
-    btn.innerHTML = `${emoji} <span class="reaction-count" id="count-${messageId}-${emoji}">${count > 0 ? count : ''}</span>`;
+    btn.innerHTML = `${emoji} <span class="font-bold text-on-surface-variant" id="count-${messageId}-${emoji}">${count > 0 ? count : ''}</span>`;
     btn.appendChild(tooltip); 
     
     btn.addEventListener('click', () => {
-      socket.emit('add reaction', {
-        roomId: currentRoom,
-        msgId: messageId,
-        emoji: emoji,
-        username: username
-      });
+      socket.emit('add reaction', { roomId: currentRoom, msgId: messageId, emoji: emoji, username: username });
     });
     
+    // Add logic to show empty reaction buttons on hover of the whole message
+    container.addEventListener('mouseenter', () => btn.classList.remove('hidden'));
+    container.addEventListener('mouseleave', () => { if (parseInt(document.getElementById(`count-${messageId}-${emoji}`).textContent || 0) === 0) btn.classList.add('hidden'); });
+
     reactionBar.appendChild(btn);
   });
 
-  container.appendChild(reactionBar);
+  contentCol.appendChild(reactionBar);
+
+  // Avatar block for incoming messages
+  if (!isMe) {
+      const avatarDiv = document.createElement('div');
+      avatarDiv.className = 'w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary font-bold mb-6';
+      avatarDiv.textContent = data.user.charAt(0).toUpperCase();
+      container.appendChild(avatarDiv);
+  }
+  
+  container.appendChild(contentCol);
   messages.appendChild(container);
   messages.scrollTop = messages.scrollHeight;
 }
 
 form.addEventListener('submit', function(e) {
   e.preventDefault();
-  
   const textVal = input.value.trim();
-  
   if (mentionDropdown.style.display !== 'block' && (textVal !== '' || attachedFileData !== null)) {
     const payload = { user: username, text: textVal, room: currentRoom };
-    
     if (attachedFileData !== null) payload.file = attachedFileData;
     if (replyingToMessage !== null) payload.replyTo = replyingToMessage;
     
     socket.emit('chat message', payload);
-    
     input.value = ''; clearAttachment(); clearReply(); closeMentionDropdown();
   }
 });
 
 socket.on('chat message', function(data) { displayMessage(data, false); });
-socket.on('chat history', function(historyArray) { 
-    historyArray.forEach(messageData => displayMessage(messageData, true)); 
-});
+socket.on('chat history', function(historyArray) { historyArray.forEach(messageData => displayMessage(messageData, true)); });
 
 socket.on('update reaction', function(data) {
   const btn = document.getElementById(`btn-${data.msgId}-${data.emoji}`);
@@ -505,11 +534,18 @@ socket.on('update reaction', function(data) {
     countSpan.textContent = count > 0 ? count : '';
     
     if (count > 0) {
-      btn.classList.add('has-reactions');
-      tooltip.innerHTML = data.users.map(u => `<div class="tooltip-row">${u}</div>`).join('');
+      btn.classList.remove('hidden');
+      btn.classList.add('flex', 'items-center', 'gap-1');
+      if (data.users.includes(username)) {
+          btn.classList.add('bg-primary/10', 'border-primary/30');
+      } else {
+          btn.classList.remove('bg-primary/10', 'border-primary/30');
+      }
+      tooltip.innerHTML = data.users.join(', ');
     } else {
-      btn.classList.remove('has-reactions');
-      tooltip.innerHTML = `<div class="tooltip-row">React with ${data.emoji}</div>`;
+      btn.classList.remove('flex', 'items-center', 'gap-1', 'bg-primary/10', 'border-primary/30');
+      btn.classList.add('hidden');
+      tooltip.innerHTML = `React with ${data.emoji}`;
     }
   }
 });
