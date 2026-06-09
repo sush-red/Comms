@@ -72,6 +72,12 @@ io.on('connection', (socket) => {
         io.emit('global presence', activeUsers);
     });
 
+    socket.on('get all users', () => {
+        db.all("SELECT username FROM users", [], (err, rows) => {
+            if (!err) socket.emit('all users list', rows.map(r => r.username));
+        });
+    });
+
     socket.on('join room', (data) => {
         const roomToJoin = data.room;
         socket.currentRoom = roomToJoin;
@@ -105,6 +111,83 @@ io.on('connection', (socket) => {
         if (clients) {
             const usersInRoom = Array.from(clients).map(id => io.sockets.sockets.get(id)?.username).filter(Boolean);
             io.to(roomToJoin).emit('room users', usersInRoom);
+        }
+    });
+
+    socket.on('rename room', (data) => {
+        const { oldName, newName } = data;
+        db.get("SELECT name FROM custom_channels WHERE name = ?", [newName], (err, row) => {
+            if (row) {
+                socket.emit('room rename error', 'A channel or group with this name already exists.');
+            } else {
+                db.run("UPDATE custom_channels SET name = ? WHERE name = ?", [newName, oldName], () => {
+                    db.run("UPDATE messages SET room = ? WHERE room = ?", [newName, oldName], () => {
+                        db.get("SELECT members FROM custom_channels WHERE name = ?", [newName], (err, row) => {
+                            if (row) {
+                                const members = JSON.parse(row.members);
+                                members.forEach(u => io.to(u).emit('room renamed', { oldName, newName }));
+                            }
+                        });
+                    });
+                });
+            }
+        });
+    });
+
+    socket.on('add channel members', (data) => {
+        const { room, newUsers } = data;
+        db.get("SELECT members FROM custom_channels WHERE name = ?", [room], (err, row) => {
+            if (row) {
+                let members = JSON.parse(row.members);
+                let changed = false;
+                newUsers.forEach(u => {
+                    if (!members.includes(u)) { members.push(u); changed = true; }
+                });
+                if (changed) {
+                    db.run("UPDATE custom_channels SET members = ? WHERE name = ?", [JSON.stringify(members), room], () => {
+                        newUsers.forEach(u => io.to(u).emit('new custom channel', room));
+                        io.to(room).emit('room directory update');
+                    });
+                }
+            }
+        });
+    });
+
+    socket.on('remove channel member', (data) => {
+        const { room, userToRemove } = data;
+        db.get("SELECT members FROM custom_channels WHERE name = ?", [room], (err, row) => {
+            if (row) {
+                let members = JSON.parse(row.members);
+                members = members.filter(u => u !== userToRemove);
+                db.run("UPDATE custom_channels SET members = ? WHERE name = ?", [JSON.stringify(members), room], () => {
+                    io.to(userToRemove).emit('removed from channel', room);
+                    io.to(room).emit('room directory update');
+                });
+            }
+        });
+    });
+
+    // NEW: Bulk Remove Logic
+    socket.on('bulk remove channel members', (data) => {
+        const { room, usersToRemove } = data;
+        db.get("SELECT members FROM custom_channels WHERE name = ?", [room], (err, row) => {
+            if (row) {
+                let members = JSON.parse(row.members);
+                members = members.filter(u => !usersToRemove.includes(u));
+                db.run("UPDATE custom_channels SET members = ? WHERE name = ?", [JSON.stringify(members), room], () => {
+                    usersToRemove.forEach(u => io.to(u).emit('removed from channel', room));
+                    io.to(room).emit('room directory update');
+                });
+            }
+        });
+    });
+
+    // NEW: Promote to Admin Logic
+    socket.on('promote to admin', (targetUser) => {
+        if (socket.role === 'admin' || socket.role === 'central') {
+            db.run("UPDATE users SET role = 'admin' WHERE username = ?", [targetUser], () => {
+                io.emit('user promoted', targetUser);
+            });
         }
     });
 
@@ -234,7 +317,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // NEW: Get another user's calendar (Accepted events only)
     socket.on('get user calendar', (targetUser) => {
         const query = `
             SELECT e.*, 
@@ -253,13 +335,10 @@ io.on('connection', (socket) => {
         db.run(`INSERT INTO events (id, title, start_time, end_time, description, organizer) VALUES (?, ?, ?, ?, ?, ?)`,
             [eventId, data.title, data.startTime, data.endTime, data.description, socket.username], (err) => {
             if (err) return;
-            
             data.attendees.forEach(attendee => {
                 db.run(`INSERT INTO event_attendees (event_id, username, status) VALUES (?, ?, ?)`, [eventId, attendee, 'pending']);
-                // NEW: Notify attendee of invite
                 io.to(attendee).emit('new meeting invite', { title: data.title, organizer: socket.username });
             });
-
             const involved = [socket.username, ...data.attendees];
             involved.forEach(u => io.to(u).emit('event refresh'));
         });
@@ -274,7 +353,6 @@ io.on('connection', (socket) => {
                         db.get(`SELECT title, organizer FROM events WHERE id = ?`, [data.eventId], (err, row) => {
                             if (row) {
                                 io.to(row.organizer).emit('event refresh');
-                                // NEW: Notify organizer of RSVP
                                 io.to(row.organizer).emit('rsvp notification', { attendee: socket.username, status: data.status, title: row.title });
                             }
                         });
@@ -292,7 +370,6 @@ io.on('connection', (socket) => {
                     db.run(`DELETE FROM event_attendees WHERE event_id = ?`, [eventId]);
                     if (!err && rows) {
                         rows.forEach(r => {
-                            // NEW: Notify attendees of cancellation
                             io.to(r.username).emit('meeting cancelled', { title: row.title, organizer: socket.username });
                             io.to(r.username).emit('event refresh');
                         });

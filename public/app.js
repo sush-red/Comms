@@ -5,6 +5,7 @@ let currentRoom = "General";
 
 let availableUsers = []; 
 let mentionableUsers = []; 
+let allSystemUsers = []; 
 let filteredUsers = [];
 let selectedMentionIndex = 0;
 let savedCursorPos = 0; 
@@ -33,9 +34,7 @@ const roleInput = document.getElementById('role-input');
 const joinBtn = document.getElementById('join-btn');
 const channelList = document.getElementById('channel-list');
 const dmList = document.getElementById('dm-list');
-const createChannelBtn = document.getElementById('create-channel-btn');
-const createChannelOverlay = document.getElementById('create-channel-overlay');
-const userSelectList = document.getElementById('user-select-list');
+
 const mentionsHub = document.getElementById('mentions-hub');
 const mentionsDropdown = document.getElementById('mentions-dropdown');
 const mentionsBadge = document.getElementById('mentions-badge');
@@ -58,13 +57,93 @@ pinnedBanner.className = 'hidden bg-surface-container border-b border-border-sub
 mainContent.insertBefore(pinnedBanner, header.nextSibling);
 
 const profileOverlay = document.getElementById('profile-overlay');
-const membersOverlay = document.getElementById('members-overlay');
 const membersBtn = document.getElementById('members-btn');
 const selfProfileBtn = document.getElementById('self-profile-btn');
 let currentProfileViewing = null;
 
 let viewingOtherUser = null;
 let otherUserEvents = [];
+let openedProfileFromMembers = false;
+
+// --- REUSABLE SEARCH & CHIP MANAGER ---
+class UserSearchManager {
+    constructor(inputId, dropdownId, containerId, onChangeCallback = null) {
+        this.input = document.getElementById(inputId);
+        this.dropdown = document.getElementById(dropdownId);
+        this.container = document.getElementById(containerId);
+        this.selected = [];
+        this.onChangeCallback = onChangeCallback;
+
+        if(!this.input) return;
+
+        this.input.addEventListener('input', () => {
+            const val = this.input.value.toLowerCase();
+            this.dropdown.innerHTML = '';
+            if (!val) { this.dropdown.classList.add('hidden'); return; }
+
+            // FIX: Removed excludeList so Admins can search for CURRENT members to Bulk Remove them.
+            const matches = allSystemUsers.filter(u => 
+                u !== username && 
+                u.toLowerCase().includes(val) && 
+                !this.selected.includes(u)
+            );
+
+            if (matches.length > 0) {
+                matches.forEach(u => {
+                    const div = document.createElement('div');
+                    div.className = 'p-2 hover:bg-surface-container-low cursor-pointer text-sm font-label-md text-on-surface';
+                    div.textContent = u;
+                    div.addEventListener('click', () => {
+                        this.selected.push(u);
+                        this.input.value = '';
+                        this.dropdown.classList.add('hidden');
+                        this.renderChips();
+                        if(this.onChangeCallback) this.onChangeCallback();
+                    });
+                    this.dropdown.appendChild(div);
+                });
+                this.dropdown.classList.remove('hidden');
+            } else {
+                this.dropdown.classList.add('hidden');
+            }
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!this.input.contains(e.target) && !this.dropdown.contains(e.target)) {
+                this.dropdown.classList.add('hidden');
+            }
+        });
+    }
+
+    renderChips() {
+        this.container.innerHTML = '';
+        this.selected.forEach(u => {
+            const pill = document.createElement('div');
+            pill.className = 'bg-surface-container-high border border-outline-variant rounded-full px-3 py-1 flex items-center gap-1 text-sm font-label-md text-on-surface';
+            pill.innerHTML = `${u} <span class="material-symbols-outlined text-[14px] cursor-pointer hover:text-error" title="Deselect User">close</span>`;
+            pill.querySelector('span').addEventListener('click', () => {
+                this.selected = this.selected.filter(x => x !== u);
+                this.renderChips();
+                if(this.onChangeCallback) this.onChangeCallback();
+            });
+            this.container.appendChild(pill);
+        });
+    }
+
+    clear() {
+        this.selected = [];
+        this.input.value = '';
+        this.dropdown.classList.add('hidden');
+        this.renderChips();
+    }
+}
+
+// Instantiate search managers
+const meetingSearch = new UserSearchManager('attendee-search-input', 'attendee-search-dropdown', 'selected-attendees-container', () => { if(isAssistantOpen) updateAssistantGrid(); });
+const msgSearch = new UserSearchManager('msg-search-input', 'msg-search-dropdown', 'msg-selected-container');
+const channelSearch = new UserSearchManager('channel-search-input', 'channel-search-dropdown', 'channel-selected-container');
+const memberSearch = new UserSearchManager('member-search-input', 'member-search-dropdown', 'member-selected-container');
+
 
 navChatBtn.addEventListener('click', () => {
     chatView.classList.remove('hidden'); chatView.classList.add('flex');
@@ -86,14 +165,27 @@ navCalendarBtn.addEventListener('click', () => {
 joinBtn.addEventListener('click', () => {
   const enteredName = usernameInput.value.trim();
   if (enteredName !== "") {
-    username = enteredName; userRole = roleInput.value; 
-    if (userRole === 'admin' || userRole === 'central') createChannelBtn.style.display = 'block';
+    username = enteredName; 
+    userRole = roleInput.value; 
+    
+    const createChanBtn = document.getElementById('create-channel-btn');
+    if (userRole === 'admin' || userRole === 'central') {
+        createChanBtn.classList.remove('hidden');
+        createChanBtn.classList.add('block');
+    } else {
+        createChanBtn.classList.add('hidden');
+        createChanBtn.classList.remove('block');
+    }
+
     loginOverlay.style.display = 'none'; 
     if (Notification.permission !== "granted" && Notification.permission !== "denied") Notification.requestPermission();
     socket.emit('login', { username: username, role: userRole });
+    socket.emit('get all users');
     joinRoom(currentRoom);
   }
 });
+
+socket.on('all users list', (users) => { allSystemUsers = users; });
 
 socket.on('login success', (data) => {
     data.customChannels.forEach(ch => addChannelToSidebar(ch, channelList));
@@ -151,7 +243,7 @@ function processMentionAlert(data) {
         alertDiv.innerHTML = `<div class="font-bold text-primary mb-1"><span class="material-symbols-outlined text-[14px] align-middle">calendar_today</span> Calendar Update</div>${data.text}`;
         alertDiv.addEventListener('click', () => { navCalendarBtn.click(); });
     } else {
-        const displayRoomName = data.room.startsWith('DM-') ? 'Direct Message' : `#${data.room}`;
+        const displayRoomName = data.room.startsWith('DM-') ? 'Direct Message' : `# ${data.room}`;
         alertDiv.innerHTML = `<div class="font-bold text-primary mb-1">${data.user} in ${displayRoomName}</div>${data.text}`;
         alertDiv.addEventListener('click', () => {
             ensureSidebarItemExists(data.room, data.user);
@@ -190,7 +282,7 @@ socket.on('rsvp notification', (data) => {
 });
 
 function addChannelToSidebar(roomName, targetList) {
-    if (document.querySelector(`.channel-item[data-room="${roomName}"]`)) return; 
+    if (document.querySelector(`.channel-item[data-room="${roomName}"]`)) return document.querySelector(`.channel-item[data-room="${roomName}"]`); 
     const li = document.createElement('li');
     li.className = 'channel-item flex items-center justify-between gap-3 text-on-secondary/70 px-3 py-2 hover:bg-surface-container-lowest/10 rounded-lg cursor-pointer border-l-4 border-transparent text-on-primary/70';
     li.setAttribute('data-room', roomName);
@@ -236,6 +328,24 @@ function switchRoom(element) {
     const icon = muteBtn.querySelector('span');
     if (mutedRooms.has(newRoom)) { icon.textContent = 'notifications_off'; muteBtn.classList.add('text-unread-coral'); } 
     else { icon.textContent = 'notifications'; muteBtn.classList.remove('text-unread-coral'); }
+    
+    const renameBtn = document.getElementById('rename-room-btn');
+    if (newRoom === 'General' || newRoom.startsWith('DM-')) {
+        renameBtn.classList.add('hidden');
+        renameBtn.classList.remove('flex');
+    } else if (newRoom.startsWith('Group-')) {
+        renameBtn.classList.remove('hidden');
+        renameBtn.classList.add('flex');
+    } else {
+        if (userRole === 'admin' || userRole === 'central') {
+            renameBtn.classList.remove('hidden');
+            renameBtn.classList.add('flex');
+        } else {
+            renameBtn.classList.add('hidden');
+            renameBtn.classList.remove('flex');
+        }
+    }
+
     clearReply(); joinRoom(newRoom);
 }
 
@@ -247,13 +357,6 @@ messages.addEventListener('scroll', () => {
 });
 
 document.querySelectorAll('.channel-item').forEach(item => { item.addEventListener('click', function() { switchRoom(this); }); });
-
-function openDirectMessage(targetUser) {
-    const dmRoomId = `DM-${[username, targetUser].sort().join('-')}`;
-    ensureSidebarItemExists(dmRoomId, targetUser);
-    const targetEl = document.querySelector(`.channel-item[data-room="${dmRoomId}"]`);
-    switchRoom(targetEl); navChatBtn.click();
-}
 
 let searchTimeout;
 searchInput.addEventListener('input', (e) => {
@@ -289,24 +392,221 @@ socket.on('search results', (results) => {
     searchResults.style.display = 'flex';
 });
 
-createChannelBtn.addEventListener('click', () => {
-    userSelectList.innerHTML = ''; 
-    mentionableUsers.forEach(u => {
-        userSelectList.innerHTML += `<label class="flex items-center gap-2 mb-1 text-sm cursor-pointer hover:bg-white p-1 rounded"><input type="checkbox" value="${u}"> ${u}</label>`;
-    });
-    createChannelOverlay.style.display = 'flex';
+// --- RENAME ROOM LOGIC ---
+document.getElementById('rename-room-btn').addEventListener('click', () => {
+    let defaultName = currentRoom;
+    if(currentRoom.startsWith('Group-')) defaultName = currentRoom.replace('Group-', '');
+    document.getElementById('rename-room-input').value = defaultName;
+    document.getElementById('renameRoomModal').classList.remove('hidden');
+});
+
+document.getElementById('submit-rename-btn').addEventListener('click', () => {
+    let newName = document.getElementById('rename-room-input').value.trim().replace(/\s+/g, '-');
+    if (!newName) return;
+    
+    if (currentRoom.startsWith('Group-') && !newName.startsWith('Group-')) {
+        newName = 'Group-' + newName;
+    }
+    
+    if (newName === currentRoom) {
+        document.getElementById('renameRoomModal').classList.add('hidden');
+        return;
+    }
+
+    socket.emit('rename room', { oldName: currentRoom, newName: newName });
+    document.getElementById('renameRoomModal').classList.add('hidden');
+});
+
+socket.on('room renamed', (data) => {
+    const { oldName, newName } = data;
+    const li = document.querySelector(`.channel-item[data-room="${oldName}"]`);
+    if (li) {
+        li.setAttribute('data-room', newName);
+        li.querySelector('.font-label-md').innerHTML = `# ${newName}`;
+    }
+    if (currentRoom === oldName) {
+        currentRoom = newName;
+        headerTitleText.textContent = `# ${newName}`;
+    }
+});
+
+socket.on('room rename error', (msg) => { alert(msg); });
+
+// --- NEW MESSAGE LOGIC ---
+document.getElementById('new-message-btn').addEventListener('click', () => {
+    msgSearch.clear();
+    document.getElementById('new-message-text').value = '';
+    document.getElementById('newMessageModal').classList.remove('hidden');
+});
+
+document.getElementById('send-new-msg-btn').addEventListener('click', () => {
+    const text = document.getElementById('new-message-text').value.trim();
+    const recipients = msgSearch.selected;
+    
+    if (recipients.length === 0 || !text) return alert('Select users and type a message.');
+    document.getElementById('newMessageModal').classList.add('hidden');
+
+    if (recipients.length === 1) {
+        const targetUser = recipients[0];
+        const dmRoomId = `DM-${[username, targetUser].sort().join('-')}`;
+        ensureSidebarItemExists(dmRoomId, targetUser);
+        const targetEl = document.querySelector(`.channel-item[data-room="${dmRoomId}"]`);
+        switchRoom(targetEl);
+        navChatBtn.click();
+        setTimeout(() => { socket.emit('chat message', { user: username, text: text, room: dmRoomId }); }, 100);
+    } else {
+        const roomName = `Group-${Math.random().toString(36).substring(2, 8)}`;
+        const members = [...recipients, username];
+        socket.emit('create custom channel', { name: roomName, members: members });
+        
+        const li = addChannelToSidebar(roomName, channelList);
+        switchRoom(li);
+        navChatBtn.click();
+        setTimeout(() => { socket.emit('chat message', { user: username, text: text, room: roomName }); }, 200);
+    }
+});
+
+// --- CREATE CHANNEL LOGIC ---
+document.getElementById('create-channel-btn').addEventListener('click', () => {
+    channelSearch.clear();
+    document.getElementById('new-channel-name').value = '';
+    document.getElementById('createChannelModal').classList.remove('hidden');
 });
 
 document.getElementById('submit-channel-btn').addEventListener('click', () => {
     const nameInput = document.getElementById('new-channel-name').value.trim().replace(/\s+/g, '-');
     if (!nameInput) return;
-    const selectedUsers = Array.from(userSelectList.querySelectorAll('input:checked')).map(cb => cb.value);
-    selectedUsers.push(username); 
+    const selectedUsers = [...channelSearch.selected, username];
     socket.emit('create custom channel', { name: nameInput, members: selectedUsers });
-    createChannelOverlay.style.display = 'none'; document.getElementById('new-channel-name').value = '';
+    document.getElementById('createChannelModal').classList.add('hidden');
 });
 
 socket.on('new custom channel', (channelName) => { addChannelToSidebar(channelName, channelList); });
+
+// --- MEMBER MANAGEMENT LOGIC ---
+membersBtn.addEventListener('click', () => {
+    const listContainer = document.getElementById('members-list-container'); 
+    listContainer.innerHTML = '';
+    
+    let currentMembers = [];
+    let canEdit = false;
+
+    if (currentRoom === 'General') {
+        currentMembers = allSystemUsers; 
+        canEdit = false; 
+    } else if (currentRoom.startsWith('DM-')) {
+        currentMembers = currentRoom.replace('DM-', '').split('-');
+        canEdit = false;
+    } else if (currentRoom.startsWith('Group-')) {
+        currentMembers = [username, ...mentionableUsers].filter((v,i,a) => a.indexOf(v)===i);
+        canEdit = true; 
+    } else {
+        currentMembers = [username, ...mentionableUsers].filter((v,i,a) => a.indexOf(v)===i);
+        if (userRole === 'admin' || userRole === 'central') canEdit = true; 
+    }
+
+    document.getElementById('members-count-label').textContent = `${currentMembers.length} users`;
+    
+    const addSection = document.getElementById('admin-add-member-section');
+    if (canEdit) {
+        addSection.classList.remove('hidden');
+        addSection.classList.add('block');
+        memberSearch.clear();
+    } else {
+        addSection.classList.add('hidden');
+        addSection.classList.remove('block');
+    }
+
+    currentMembers.sort((a, b) => { if (a === username) return -1; if (b === username) return 1; return a.localeCompare(b); });
+    
+    currentMembers.forEach(member => {
+        const isOnline = availableUsers.includes(member) || member === username;
+        const div = document.createElement('div'); 
+        div.className = "flex items-center justify-between p-2 hover:bg-surface-container-low rounded-lg transition-colors group";
+        
+        let innerHtml = `
+            <div class="flex items-center gap-3 cursor-pointer flex-1" onclick="document.getElementById('membersModal').classList.add('hidden'); openedProfileFromMembers = true; fetchAndShowProfile('${member}')" title="View Profile">
+                <div class="w-8 h-8 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs relative hover:ring-2 hover:ring-primary/50 transition-all">
+                    ${member.charAt(0).toUpperCase()}
+                    <span class="absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}"></span>
+                </div>
+                <span class="font-body-sm font-bold text-on-surface">${member === username ? member + ' (You)' : member}</span>
+            </div>
+        `;
+        
+        // FIX: Add sleek Make Admin and Remove icon buttons
+        if (canEdit && member !== username) {
+            innerHtml += `
+            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-md transition-colors flex items-center justify-center" onclick="promoteToAdmin('${member}')" title="Make Global Admin">
+                    <span class="material-symbols-outlined text-[18px]">admin_panel_settings</span>
+                </button>
+                <button class="p-1.5 text-on-surface-variant hover:text-error hover:bg-error-container/50 rounded-md transition-colors flex items-center justify-center" onclick="removeChannelMember('${member}')" title="Remove User from Room">
+                    <span class="material-symbols-outlined text-[18px]">person_remove</span>
+                </button>
+            </div>`;
+        }
+        
+        div.innerHTML = innerHtml;
+        listContainer.appendChild(div);
+    });
+    document.getElementById('membersModal').classList.remove('hidden');
+});
+
+// FIX: Bulk Add/Remove Handlers
+document.getElementById('add-members-submit-btn').addEventListener('click', () => {
+    if(memberSearch.selected.length === 0) return alert("Please search and select users first.");
+    socket.emit('add channel members', { room: currentRoom, newUsers: memberSearch.selected });
+    memberSearch.clear();
+});
+
+document.getElementById('remove-members-submit-btn').addEventListener('click', () => {
+    if(memberSearch.selected.length === 0) return alert("Please search and select users first.");
+    if(confirm(`Are you sure you want to bulk-remove the selected users from this room?`)) {
+        socket.emit('bulk remove channel members', { room: currentRoom, usersToRemove: memberSearch.selected });
+        memberSearch.clear();
+    }
+});
+
+window.removeChannelMember = function(userToRemove) {
+    if(confirm(`Are you sure you want to remove ${userToRemove} from this room?`)) {
+        socket.emit('remove channel member', { room: currentRoom, userToRemove });
+    }
+};
+
+window.promoteToAdmin = function(targetUser) {
+    if(confirm(`Promote ${targetUser} to Global Admin? They will have access to create and manage all channels.`)) {
+        socket.emit('promote to admin', targetUser);
+    }
+};
+
+socket.on('user promoted', (promotedUser) => {
+    if (promotedUser === username) {
+        userRole = 'admin';
+        document.getElementById('create-channel-btn').classList.remove('hidden');
+        document.getElementById('create-channel-btn').classList.add('block');
+        alert("You have been promoted to a Project Admin!");
+    }
+});
+
+socket.on('room directory update', () => {
+    socket.emit('join room', { room: currentRoom, username: username }); 
+    setTimeout(() => {
+        if (!document.getElementById('membersModal').classList.contains('hidden')) {
+            document.getElementById('members-btn').click(); 
+        }
+    }, 200);
+});
+
+socket.on('removed from channel', (roomName) => {
+    const item = document.querySelector(`.channel-item[data-room="${roomName}"]`);
+    if (item) item.remove();
+    if (currentRoom === roomName) {
+        const gen = document.querySelector(`.channel-item[data-room="General"]`);
+        if (gen) switchRoom(gen);
+    }
+});
+
 
 input.addEventListener('input', () => {
     savedCursorPos = input.selectionStart; const val = input.value;
@@ -510,7 +810,10 @@ function displayMessage(data, isHistory = false, prepend = false) {
       const avatarDiv = document.createElement('div'); 
       avatarDiv.className = 'w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary font-bold mb-6 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all shadow-sm'; 
       avatarDiv.textContent = data.user.charAt(0).toUpperCase(); 
-      avatarDiv.addEventListener('click', () => fetchAndShowProfile(data.user));
+      avatarDiv.addEventListener('click', () => {
+          openedProfileFromMembers = false;
+          fetchAndShowProfile(data.user);
+      });
       container.appendChild(avatarDiv);
   }
   container.appendChild(contentCol);
@@ -551,8 +854,17 @@ input.addEventListener('input', function() { this.style.height = 'auto'; this.st
 
 function fetchAndShowProfile(targetUsername) { currentProfileViewing = targetUsername; socket.emit('get profile', targetUsername); }
 
+// FIX: Smart Profile Closing
+window.closeProfileModal = function() {
+    document.getElementById('profile-overlay').classList.add('hidden');
+    if (openedProfileFromMembers) {
+        document.getElementById('membersModal').classList.remove('hidden');
+        openedProfileFromMembers = false;
+    }
+};
+
 window.viewCalendarFromProfile = function(targetUser) {
-    profileOverlay.style.display = 'none';
+    window.closeProfileModal();
     navCalendarBtn.click();
     socket.emit('get user calendar', targetUser);
 };
@@ -593,25 +905,10 @@ socket.on('profile data', (data) => {
             <button onclick="viewCalendarFromProfile('${data.username}')" class="flex-1 bg-surface-container-low text-on-surface-variant border border-border-subtle py-2 rounded-lg hover:bg-surface-container transition-colors flex items-center justify-center gap-2 font-bold text-sm shadow-sm"><span class="material-symbols-outlined text-[18px]">calendar_today</span> View Calendar</button>
         `;
     }
-    profileOverlay.style.display = 'flex';
+    document.getElementById('profile-overlay').classList.remove('hidden');
 });
 
-window.messageFromProfile = function(targetUser) { profileOverlay.style.display = 'none'; openDirectMessage(targetUser); };
-
-membersBtn.addEventListener('click', () => {
-    const listContainer = document.getElementById('members-list-container'); listContainer.innerHTML = '';
-    const allMembers = [username, ...mentionableUsers].sort((a, b) => { if (a === username) return -1; if (b === username) return 1; return a.localeCompare(b); });
-    document.getElementById('members-count').textContent = `${allMembers.length} users`;
-    allMembers.forEach(member => {
-        const isOnline = availableUsers.includes(member) || member === username;
-        const div = document.createElement('div'); div.className = "flex items-center justify-between p-2 hover:bg-surface-container-low rounded-lg cursor-pointer transition-colors";
-        div.innerHTML = `<div class="flex items-center gap-3"><div class="w-8 h-8 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs relative cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all">${member.charAt(0).toUpperCase()}<span class="absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}"></span></div><span class="font-body-sm font-bold text-on-surface">${member === username ? member + ' (You)' : member}</span></div>`;
-        div.addEventListener('click', () => { membersOverlay.style.display = 'none'; fetchAndShowProfile(member); }); listContainer.appendChild(div);
-    });
-    membersOverlay.style.display = 'flex';
-});
-if (selfProfileBtn) selfProfileBtn.addEventListener('click', () => { fetchAndShowProfile(username); });
-
+window.messageFromProfile = function(targetUser) { window.closeProfileModal(); openDirectMessage(targetUser); };
 
 // ==========================================
 // CALENDAR ENGINE LOGIC
@@ -808,9 +1105,7 @@ socket.on('event refresh', () => {
     if (calendarView.classList.contains('flex') && !viewingOtherUser) socket.emit('get events');
 });
 
-// --- SCHEDULING ASSISTANT & MODAL LOGIC ---
 let isAssistantOpen = false;
-let selectedAttendees = [];
 let pendingOverlapCallback = null; 
 
 document.getElementById('event-start').addEventListener('change', function() {
@@ -849,52 +1144,6 @@ document.getElementById('event-end').addEventListener('change', () => {
     if(isAssistantOpen) updateAssistantGrid();
 });
 
-const searchInputAtt = document.getElementById('attendee-search-input');
-const searchDropdownAtt = document.getElementById('attendee-search-dropdown');
-const selectedContainer = document.getElementById('selected-attendees-container');
-
-searchInputAtt.addEventListener('input', () => {
-    const val = searchInputAtt.value.toLowerCase();
-    searchDropdownAtt.innerHTML = '';
-    if (!val) { searchDropdownAtt.classList.add('hidden'); return; }
-
-    const matches = mentionableUsers.filter(u => u.toLowerCase().includes(val) && !selectedAttendees.includes(u));
-    if (matches.length > 0) {
-        matches.forEach(u => {
-            const div = document.createElement('div');
-            div.className = 'p-2 hover:bg-surface-container-low cursor-pointer text-sm font-label-md';
-            div.textContent = u;
-            div.addEventListener('click', () => {
-                selectedAttendees.push(u);
-                searchInputAtt.value = '';
-                searchDropdownAtt.classList.add('hidden');
-                renderSelectedAttendees();
-                if(isAssistantOpen) updateAssistantGrid();
-            });
-            searchDropdownAtt.appendChild(div);
-        });
-        searchDropdownAtt.classList.remove('hidden');
-    } else {
-        searchDropdownAtt.classList.add('hidden');
-    }
-});
-
-function renderSelectedAttendees() {
-    selectedContainer.innerHTML = '';
-    selectedAttendees.forEach(u => {
-        const pill = document.createElement('div');
-        pill.className = 'bg-surface-container-high border border-outline-variant rounded-full px-3 py-1 flex items-center gap-1 text-sm font-label-md';
-        pill.innerHTML = `${u} <span class="material-symbols-outlined text-[14px] cursor-pointer hover:text-error" onclick="removeAttendee('${u}')">close</span>`;
-        selectedContainer.appendChild(pill);
-    });
-}
-
-window.removeAttendee = function(u) {
-    selectedAttendees = selectedAttendees.filter(a => a !== u);
-    renderSelectedAttendees();
-    if(isAssistantOpen) updateAssistantGrid();
-};
-
 document.getElementById('toggle-assistant-btn').addEventListener('click', () => {
     isAssistantOpen = !isAssistantOpen;
     const modal = document.getElementById('newMeetingModalContent');
@@ -913,20 +1162,17 @@ document.getElementById('toggle-assistant-btn').addEventListener('click', () => 
     }
 });
 
-// FIX: Time Grid dynamically built with exact pixel matching, ignoring timezone logic
 window.updateAssistantGrid = function() {
     const grid = document.getElementById('assistant-attendees-grid');
     if(!grid) return;
     
     grid.innerHTML = '';
-    // Set explicit height to prevent flex-shrink from squishing the hour blocks
     grid.style.height = '1520px'; 
     grid.classList.remove('h-[1440px]');
     
     const timeCol = document.createElement('div');
     timeCol.className = 'flex flex-col sticky left-0 bg-surface-container-low z-20 min-w-[60px] border-r border-border-subtle';
     
-    // Header spacer to perfectly align the 12:00 AM grid line with the top of the body
     const spacer = document.createElement('div');
     spacer.className = "h-[60px] mb-2 flex-shrink-0 bg-surface-container-low"; 
     timeCol.appendChild(spacer);
@@ -934,7 +1180,6 @@ window.updateAssistantGrid = function() {
     const timeBody = document.createElement('div');
     timeBody.className = "flex-1 relative w-full";
     
-    // Generate absolutely positioned time labels for perfect 60px interval locking
     for(let i=0; i<=24; i++) {
         if (i===24) continue; 
         const hour = i === 0 ? 12 : (i > 12 ? i - 12 : i);
@@ -942,20 +1187,19 @@ window.updateAssistantGrid = function() {
         const timeStr = `${hour.toString().padStart(2, '0')}:00 ${ampm}`;
         const label = document.createElement('div');
         label.className = "absolute left-0 right-2 text-[10px] text-on-surface-variant/60 text-right";
-        label.style.top = `${i * 60 - 7}px`; // -7px vertically centers text directly on the line
+        label.style.top = `${i * 60 - 7}px`; 
         label.textContent = timeStr;
         timeBody.appendChild(label);
     }
     timeCol.appendChild(timeBody);
     grid.appendChild(timeCol);
     
-    const attendeesToShow = [username, ...selectedAttendees];
+    const attendeesToShow = [username, ...meetingSearch.selected];
     const startInput = document.getElementById('event-start').value;
     const endInput = document.getElementById('event-end').value;
     
     let topOffset = 0; let blockHeight = 0; let hasValidTime = false;
     
-    // FIX: Parse raw string data to prevent browser local timezone shifts
     if(startInput && endInput) {
         const [startH, startM] = startInput.split('T')[1].split(':').map(Number);
         const [endH, endM] = endInput.split('T')[1].split(':').map(Number);
@@ -996,7 +1240,6 @@ window.updateAssistantGrid = function() {
             body.appendChild(line);
         }
         
-        // Plot actual accepted meetings for attendees
         if (targetDateStr) {
             currentEvents.forEach(evt => {
                 const isOrg = evt.organizer === att;
@@ -1021,7 +1264,6 @@ window.updateAssistantGrid = function() {
             });
         }
         
-        // Plot Proposed Line
         if(hasValidTime) {
             const block = document.createElement('div');
             block.className = "absolute left-0 right-0 border-y-2 border-primary overflow-hidden z-10 shadow-sm transition-all cursor-pointer";
@@ -1042,8 +1284,7 @@ window.updateAssistantGrid = function() {
 window.closeNewMeetingModal = function() {
     document.getElementById('newMeetingModal').classList.add('hidden');
     if(isAssistantOpen) document.getElementById('toggle-assistant-btn').click();
-    document.getElementById('attendee-search-input').value = '';
-    document.getElementById('attendee-search-dropdown').classList.add('hidden');
+    meetingSearch.clear();
 };
 
 document.getElementById('open-new-meeting-btn').addEventListener('click', () => {
@@ -1051,10 +1292,7 @@ document.getElementById('open-new-meeting-btn').addEventListener('click', () => 
     document.getElementById('event-start').value = '';
     document.getElementById('event-end').value = '';
     document.getElementById('event-desc').value = '';
-    document.getElementById('attendee-search-input').value = '';
-    selectedAttendees = [];
-    renderSelectedAttendees();
-    
+    meetingSearch.clear();
     document.getElementById('newMeetingModal').classList.remove('hidden');
 });
 
@@ -1108,13 +1346,13 @@ document.getElementById('create-event-submit-btn').addEventListener('click', () 
     
     if (hasOverlap(startTime, endTime)) {
         showOverlapWarning(() => {
-            socket.emit('create event', { title, startTime, endTime, description: desc, attendees: selectedAttendees });
+            socket.emit('create event', { title, startTime, endTime, description: desc, attendees: meetingSearch.selected });
             window.closeNewMeetingModal();
         });
         return; 
     }
     
-    socket.emit('create event', { title, startTime, endTime, description: desc, attendees: selectedAttendees });
+    socket.emit('create event', { title, startTime, endTime, description: desc, attendees: meetingSearch.selected });
     window.closeNewMeetingModal();
 });
 
@@ -1158,7 +1396,6 @@ function openEventDetails(evt) {
         actionsContainer.innerHTML = `<div></div>`;
         const btns = document.createElement('div'); btns.className = "flex gap-2";
         
-        // FIX: Display Cancel button properly if already accepted
         if (myRsvp === 'accepted') {
             btns.innerHTML = `
                 <button onclick="rsvpEvent('${evt.id}', 'declined')" class="py-1.5 px-4 border border-border-subtle rounded text-error hover:bg-error-container/30 transition-colors flex items-center justify-center gap-1 font-bold text-sm shadow-sm"><span class="material-symbols-outlined text-[18px]">event_busy</span> Cancel</button>
