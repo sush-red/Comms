@@ -47,7 +47,12 @@ io.on('connection', (socket) => {
         socket.role = data.role;
         socket.join(data.username); 
 
-        db.run("INSERT OR IGNORE INTO users (username, role) VALUES (?, ?)", [data.username, data.role]);
+        db.run("INSERT OR IGNORE INTO users (username, role) VALUES (?, ?)", [data.username, data.role], () => {
+            // FIX: Broadcast updated user list to ALL connected clients so search bars auto-update
+            db.all("SELECT username FROM users", [], (err, rows) => {
+                if (!err) io.emit('all users list', rows.map(r => r.username));
+            });
+        });
 
         db.all("SELECT * FROM custom_channels", [], (err, rows) => {
             if (!err) {
@@ -167,7 +172,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // NEW: Bulk Remove Logic
     socket.on('bulk remove channel members', (data) => {
         const { room, usersToRemove } = data;
         db.get("SELECT members FROM custom_channels WHERE name = ?", [room], (err, row) => {
@@ -182,7 +186,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // NEW: Promote to Admin Logic
     socket.on('promote to admin', (targetUser) => {
         if (socket.role === 'admin' || socket.role === 'central') {
             db.run("UPDATE users SET role = 'admin' WHERE username = ?", [targetUser], () => {

@@ -81,7 +81,6 @@ class UserSearchManager {
             this.dropdown.innerHTML = '';
             if (!val) { this.dropdown.classList.add('hidden'); return; }
 
-            // FIX: Removed excludeList so Admins can search for CURRENT members to Bulk Remove them.
             const matches = allSystemUsers.filter(u => 
                 u !== username && 
                 u.toLowerCase().includes(val) && 
@@ -226,6 +225,12 @@ mentionsHub.addEventListener('click', (e) => {
     mentionsDropdown.style.display = isVisible ? 'none' : 'flex';
     if (!isVisible) { unreadMentionsCount = 0; mentionsBadge.style.display = 'none'; }
     e.stopPropagation();
+});
+
+// FIX: Added missing event listener back to the top-right profile button
+selfProfileBtn.addEventListener('click', () => {
+    openedProfileFromMembers = false;
+    fetchAndShowProfile(username);
 });
 
 document.addEventListener('click', () => { mentionsDropdown.style.display = 'none'; searchResults.style.display = 'none'; });
@@ -534,7 +539,6 @@ membersBtn.addEventListener('click', () => {
             </div>
         `;
         
-        // FIX: Add sleek Make Admin and Remove icon buttons
         if (canEdit && member !== username) {
             innerHtml += `
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -553,7 +557,6 @@ membersBtn.addEventListener('click', () => {
     document.getElementById('membersModal').classList.remove('hidden');
 });
 
-// FIX: Bulk Add/Remove Handlers
 document.getElementById('add-members-submit-btn').addEventListener('click', () => {
     if(memberSearch.selected.length === 0) return alert("Please search and select users first.");
     socket.emit('add channel members', { room: currentRoom, newUsers: memberSearch.selected });
@@ -908,7 +911,18 @@ socket.on('profile data', (data) => {
     document.getElementById('profile-overlay').classList.remove('hidden');
 });
 
-window.messageFromProfile = function(targetUser) { window.closeProfileModal(); openDirectMessage(targetUser); };
+// FIX: Added the missing openDirectMessage function!
+window.openDirectMessage = function(targetUser) {
+    const dmRoomId = `DM-${[username, targetUser].sort().join('-')}`;
+    ensureSidebarItemExists(dmRoomId, targetUser);
+    const targetEl = document.querySelector(`.channel-item[data-room="${dmRoomId}"]`);
+    if (targetEl) {
+        switchRoom(targetEl);
+        navChatBtn.click();
+    }
+};
+
+window.messageFromProfile = function(targetUser) { window.closeProfileModal(); window.openDirectMessage(targetUser); };
 
 // ==========================================
 // CALENDAR ENGINE LOGIC

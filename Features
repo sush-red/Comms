@@ -1,15 +1,17 @@
 Issues:
 
+1.
 
-End time shoudlnt let me select previous times.
-Provide the option to select 30 minutes or 1 hour so that it auto populates end time.
-I dont like the UI of displaying proposed on the scheduling assistant, just display a bar or lines.
+3. When admin is trying to create a channel, the search bar isnt bring up names, but after I create  a channel, and try to add people through member section its working.
 
-Overlapping shows like a web pop up, can we make it look more aesthetic and something that fits into the deisgn.
 
-In calendar, even after I accepted a meeting, when I go that day's box and click on meeting, it still shows accept. Since I already accepted it, it should show cancelled only.
 
-Additionally, it isnt accurate, I selected 4:30 to 5:30 and its blocking at 5:30 to 6 in scheduling assistant
+
+
+
+
+
+
 
 New message
 People - To display contacts of everyone in the org
