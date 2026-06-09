@@ -444,9 +444,9 @@ function displayMessage(data, isHistory = false, prepend = false) {
   const contentCol = document.createElement('div'); contentCol.className = isMe ? 'flex flex-col gap-1 items-end' : 'flex flex-col gap-1';
   const nameRow = document.createElement('div'); nameRow.className = isMe ? 'flex items-center gap-2 mr-1' : 'flex items-center gap-2 ml-1';
   const senderName = document.createElement('span');
-  senderName.className = 'font-label-md text-label-md text-on-surface cursor-pointer hover:underline';
+  senderName.className = 'font-label-md text-label-md text-on-surface';
   senderName.textContent = isMe ? 'You' : data.user;
-  senderName.addEventListener('click', () => fetchAndShowProfile(isMe ? username : data.user));
+  
 
   const bubble = document.createElement('div');
   bubble.className = isMe ? 'bg-outgoing-blue text-on-surface p-3 md:p-4 rounded-bubble-outgoing border border-primary/10 relative shadow-sm' : 'bg-surface-container-lowest text-on-surface p-3 md:p-4 rounded-bubble-incoming shadow-ambient border border-border-subtle/50 relative';
@@ -504,7 +504,15 @@ function displayMessage(data, isHistory = false, prepend = false) {
       contentCol.appendChild(reactionBar);
   }
   if (!isMe) {
-      const avatarDiv = document.createElement('div'); avatarDiv.className = 'w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary font-bold mb-6'; avatarDiv.textContent = data.user.charAt(0).toUpperCase(); container.appendChild(avatarDiv);
+      const avatarDiv = document.createElement('div');
+      // Added cursor-pointer, hover ring, and transition
+      avatarDiv.className = 'w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary font-bold mb-6 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all shadow-sm';
+      avatarDiv.textContent = data.user.charAt(0).toUpperCase();
+      
+      // Added the click listener to the avatar bubble
+      avatarDiv.addEventListener('click', () => fetchAndShowProfile(data.user));
+      
+      container.appendChild(avatarDiv);
   }
   container.appendChild(contentCol);
   if (prepend) messages.prepend(container); else { messages.appendChild(container); messages.scrollTop = messages.scrollHeight; }

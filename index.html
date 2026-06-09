@@ -284,12 +284,14 @@
 
     <div class="px-6 py-4 flex items-center justify-between border-b border-border-subtle bg-surface">
         <div class="flex items-center gap-6">
-            <h2 class="font-headline-md text-headline-md text-on-surface min-w-[180px]" id="calendar-month-label">Month Year</h2>
-            <div class="flex items-center gap-2">
-                <button id="cal-prev-btn" class="p-1 rounded hover:bg-surface-container-low text-on-surface-variant transition-colors"><span class="material-symbols-outlined">chevron_left</span></button>
-                <button id="cal-today-btn" class="font-label-md text-label-md px-3 py-1.5 border border-border-subtle rounded hover:bg-surface-container-low transition-colors bg-surface-container-lowest">Today</button>
-                <button id="cal-next-btn" class="p-1 rounded hover:bg-surface-container-low text-on-surface-variant transition-colors"><span class="material-symbols-outlined">chevron_right</span></button>
+            <!-- Arrows grouped with the Month -->
+            <div class="flex items-center gap-2 bg-surface-container-low rounded-lg p-1 border border-border-subtle">
+                <button id="cal-prev-btn" class="p-1 rounded hover:bg-surface-container-highest text-on-surface-variant transition-colors flex"><span class="material-symbols-outlined text-[20px]">chevron_left</span></button>
+                <h2 class="font-headline-sm text-headline-sm text-on-surface min-w-[140px] text-center" id="calendar-month-label">Month Year</h2>
+                <button id="cal-next-btn" class="p-1 rounded hover:bg-surface-container-highest text-on-surface-variant transition-colors flex"><span class="material-symbols-outlined text-[20px]">chevron_right</span></button>
             </div>
+            <!-- Today button separated -->
+            <button id="cal-today-btn" class="font-label-md text-label-md px-4 py-1.5 border border-border-subtle rounded-lg hover:bg-surface-container-low transition-colors bg-surface-container-lowest shadow-sm">Today</button>
         </div>
     </div>
 
