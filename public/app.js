@@ -107,7 +107,16 @@ joinBtn.addEventListener('click', () => {
 });
 
 socket.on('login success', (data) => {
+    // Load custom group channels
     data.customChannels.forEach(ch => addChannelToSidebar(ch, channelList));
+    
+    // Load historical Direct Messages
+    if (data.dmRooms) {
+        data.dmRooms.forEach(dmRoom => {
+            const otherUser = dmRoom.replace('DM-', '').split('-').find(u => u !== username);
+            ensureSidebarItemExists(dmRoom, otherUser);
+        });
+    }
 });
 
 socket.on('global presence', (users) => {

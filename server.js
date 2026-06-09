@@ -53,12 +53,28 @@ io.on('connection', (socket) => {
 
         db.run("INSERT OR IGNORE INTO users (username, role) VALUES (?, ?)", [data.username, data.role]);
 
+        // First, fetch custom channels
         db.all("SELECT * FROM custom_channels", [], (err, rows) => {
             if (!err) {
                 const myCustomChannels = rows
                     .filter(row => JSON.parse(row.members).includes(data.username))
                     .map(row => row.name);
-                socket.emit('login success', { customChannels: myCustomChannels });
+                
+                // Second, fetch any DM rooms this user is part of from the messages table
+                db.all("SELECT DISTINCT room FROM messages WHERE room LIKE 'DM-%'", [], (err, dmRows) => {
+                    const myDMs = [];
+                    if (!err) {
+                        dmRows.forEach(row => {
+                            // Check if the username is one of the two names in the DM string
+                            const usersInRoom = row.room.replace('DM-', '').split('-');
+                            if (usersInRoom.includes(data.username)) {
+                                myDMs.push(row.room);
+                            }
+                        });
+                    }
+                    // Send both channel lists back to the client
+                    socket.emit('login success', { customChannels: myCustomChannels, dmRooms: myDMs });
+                });
             }
         });
 
