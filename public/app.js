@@ -808,11 +808,47 @@ socket.on('event refresh', () => {
     if (calendarView.classList.contains('flex') && !viewingOtherUser) socket.emit('get events');
 });
 
-// --- NEW SCHEDULING ASSISTANT LOGIC ---
+// --- SCHEDULING ASSISTANT & MODAL LOGIC ---
 let isAssistantOpen = false;
 let selectedAttendees = [];
+let pendingOverlapCallback = null; 
 
-// Search and add attendees
+document.getElementById('event-start').addEventListener('change', function() {
+    const startVal = this.value;
+    if(startVal) {
+        document.getElementById('event-end').min = startVal;
+        
+        const startDate = new Date(startVal);
+        const endDateInput = document.getElementById('event-end');
+        
+        const currentEnd = new Date(endDateInput.value);
+        if(!endDateInput.value || currentEnd <= startDate) {
+            const newEnd = new Date(startDate.getTime() + 15 * 60000);
+            const tzOffset = newEnd.getTimezoneOffset() * 60000;
+            const localISOTime = (new Date(newEnd - tzOffset)).toISOString().slice(0,16);
+            endDateInput.value = localISOTime;
+        }
+        if(isAssistantOpen) updateAssistantGrid();
+    }
+});
+
+window.addTimeToEnd = function(minutes) {
+    const startVal = document.getElementById('event-start').value;
+    if(!startVal) return alert("Please set a Start time first.");
+    
+    const startDate = new Date(startVal);
+    const newEnd = new Date(startDate.getTime() + minutes * 60000);
+    const tzOffset = newEnd.getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(newEnd - tzOffset)).toISOString().slice(0,16);
+    
+    document.getElementById('event-end').value = localISOTime;
+    if(isAssistantOpen) updateAssistantGrid();
+};
+
+document.getElementById('event-end').addEventListener('change', () => {
+    if(isAssistantOpen) updateAssistantGrid();
+});
+
 const searchInputAtt = document.getElementById('attendee-search-input');
 const searchDropdownAtt = document.getElementById('attendee-search-dropdown');
 const selectedContainer = document.getElementById('selected-attendees-container');
@@ -859,30 +895,6 @@ window.removeAttendee = function(u) {
     if(isAssistantOpen) updateAssistantGrid();
 };
 
-// Auto-populate End Time (+15 mins)
-document.getElementById('event-start').addEventListener('change', function() {
-    const startVal = this.value;
-    if(startVal) {
-        const startDate = new Date(startVal);
-        const endDateInput = document.getElementById('event-end');
-        
-        // Only override if end time is empty or before start time
-        const currentEnd = new Date(endDateInput.value);
-        if(!endDateInput.value || currentEnd <= startDate) {
-            const newEnd = new Date(startDate.getTime() + 15 * 60000);
-            const tzOffset = newEnd.getTimezoneOffset() * 60000;
-            const localISOTime = (new Date(newEnd - tzOffset)).toISOString().slice(0,16);
-            endDateInput.value = localISOTime;
-        }
-        if(isAssistantOpen) updateAssistantGrid();
-    }
-});
-
-document.getElementById('event-end').addEventListener('change', () => {
-    if(isAssistantOpen) updateAssistantGrid();
-});
-
-// Toggle Assistant
 document.getElementById('toggle-assistant-btn').addEventListener('click', () => {
     isAssistantOpen = !isAssistantOpen;
     const modal = document.getElementById('newMeetingModalContent');
@@ -901,25 +913,40 @@ document.getElementById('toggle-assistant-btn').addEventListener('click', () => 
     }
 });
 
-// Generate 24hr Assistant Grid dynamically
+// FIX: Time Grid dynamically built with exact pixel matching, ignoring timezone logic
 window.updateAssistantGrid = function() {
     const grid = document.getElementById('assistant-attendees-grid');
     if(!grid) return;
     
     grid.innerHTML = '';
+    // Set explicit height to prevent flex-shrink from squishing the hour blocks
+    grid.style.height = '1520px'; 
+    grid.classList.remove('h-[1440px]');
     
-    // Time Column
     const timeCol = document.createElement('div');
-    timeCol.className = 'flex flex-col text-[10px] text-on-surface-variant/60 sticky left-0 bg-surface-container-low z-20 pr-2 min-w-[60px] border-r border-border-subtle';
-    for(let i=0; i<24; i++) {
+    timeCol.className = 'flex flex-col sticky left-0 bg-surface-container-low z-20 min-w-[60px] border-r border-border-subtle';
+    
+    // Header spacer to perfectly align the 12:00 AM grid line with the top of the body
+    const spacer = document.createElement('div');
+    spacer.className = "h-[60px] mb-2 flex-shrink-0 bg-surface-container-low"; 
+    timeCol.appendChild(spacer);
+
+    const timeBody = document.createElement('div');
+    timeBody.className = "flex-1 relative w-full";
+    
+    // Generate absolutely positioned time labels for perfect 60px interval locking
+    for(let i=0; i<=24; i++) {
+        if (i===24) continue; 
         const hour = i === 0 ? 12 : (i > 12 ? i - 12 : i);
         const ampm = i < 12 ? 'AM' : 'PM';
         const timeStr = `${hour.toString().padStart(2, '0')}:00 ${ampm}`;
-        const slot = document.createElement('div');
-        slot.style.height = '60px'; // 1 min = 1px
-        slot.textContent = timeStr;
-        timeCol.appendChild(slot);
+        const label = document.createElement('div');
+        label.className = "absolute left-0 right-2 text-[10px] text-on-surface-variant/60 text-right";
+        label.style.top = `${i * 60 - 7}px`; // -7px vertically centers text directly on the line
+        label.textContent = timeStr;
+        timeBody.appendChild(label);
     }
+    timeCol.appendChild(timeBody);
     grid.appendChild(timeCol);
     
     const attendeesToShow = [username, ...selectedAttendees];
@@ -928,23 +955,31 @@ window.updateAssistantGrid = function() {
     
     let topOffset = 0; let blockHeight = 0; let hasValidTime = false;
     
+    // FIX: Parse raw string data to prevent browser local timezone shifts
     if(startInput && endInput) {
-        const startD = new Date(startInput); const endD = new Date(endInput);
-        topOffset = (startD.getHours() * 60) + startD.getMinutes();
-        blockHeight = (endD.getTime() - startD.getTime()) / 60000;
-        if(blockHeight < 0) blockHeight = 0;
+        const [startH, startM] = startInput.split('T')[1].split(':').map(Number);
+        const [endH, endM] = endInput.split('T')[1].split(':').map(Number);
+        
+        topOffset = (startH * 60) + startM;
+        const totalEndMins = (endH * 60) + endM;
+        blockHeight = totalEndMins - topOffset;
+        if(blockHeight < 0) blockHeight = (24 * 60) - topOffset; 
+        
         hasValidTime = true;
+        const startD = new Date(startInput); 
         document.getElementById('assistant-date-label').textContent = startD.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
     } else {
         document.getElementById('assistant-date-label').textContent = "Select a start time";
     }
     
+    const targetDateStr = startInput ? startInput.split('T')[0] : null;
+
     attendeesToShow.forEach(att => {
         const col = document.createElement('div');
-        col.className = "flex flex-col gap-1 min-w-[100px] flex-1 relative";
+        col.className = "flex flex-col min-w-[100px] flex-1 relative";
         
         const header = document.createElement('div');
-        header.className = "text-center mb-2 sticky top-0 bg-surface-container-low z-10 pt-2 pb-1";
+        header.className = "text-center mb-2 sticky top-0 bg-surface-container-low z-10 pt-2 pb-1 h-[60px] flex flex-col items-center justify-center flex-shrink-0";
         header.innerHTML = `
             <div class="w-8 h-8 rounded-full bg-surface-container-high border border-border-subtle mx-auto mb-1 flex items-center justify-center text-[10px] font-bold text-on-surface-variant">${att.charAt(0).toUpperCase()}</div>
             <span class="text-[10px] block truncate text-on-surface font-bold">${att === username ? att + ' (You)' : att}</span>
@@ -952,28 +987,52 @@ window.updateAssistantGrid = function() {
         col.appendChild(header);
         
         const body = document.createElement('div');
-        body.className = "flex-1 bg-surface-container-lowest rounded border border-border-subtle relative overflow-hidden";
+        body.className = "flex-1 bg-surface-container-lowest rounded border border-border-subtle relative overflow-hidden h-[1440px]";
         
-        for(let i=0; i<24; i++) {
+        for(let i=0; i<=24; i++) {
             const line = document.createElement('div');
             line.className = "absolute left-0 right-0 border-t border-border-subtle/50";
             line.style.top = `${i * 60}px`;
             body.appendChild(line);
         }
         
+        // Plot actual accepted meetings for attendees
+        if (targetDateStr) {
+            currentEvents.forEach(evt => {
+                const isOrg = evt.organizer === att;
+                const myAtt = JSON.parse(evt.attendees).find(a => a.username === att);
+                
+                if (isOrg || (myAtt && myAtt.status === 'accepted')) {
+                    if (evt.start_time.startsWith(targetDateStr)) {
+                        const [eStartH, eStartM] = evt.start_time.split('T')[1].split(':').map(Number);
+                        const [eEndH, eEndM] = evt.end_time ? evt.end_time.split('T')[1].split(':').map(Number) : [eStartH + 1, eStartM];
+                        
+                        const evtTop = (eStartH * 60) + eStartM;
+                        const evtHeight = ((eEndH * 60) + eEndM) - evtTop;
+                        
+                        const busyBlock = document.createElement('div');
+                        busyBlock.className = "absolute left-0 right-0 bg-surface-container text-on-surface-variant flex justify-center items-center overflow-hidden z-0 opacity-80 border-l-4 border-outline";
+                        busyBlock.style.top = `${evtTop}px`;
+                        busyBlock.style.height = `${evtHeight}px`;
+                        busyBlock.innerHTML = `<span class="material-symbols-outlined text-[12px]">lock</span>`;
+                        body.appendChild(busyBlock);
+                    }
+                }
+            });
+        }
+        
+        // Plot Proposed Line
         if(hasValidTime) {
             const block = document.createElement('div');
-            block.className = "absolute left-0 right-0 bg-primary/20 border-y border-primary flex items-center justify-center overflow-hidden z-10 shadow-sm transition-all";
+            block.className = "absolute left-0 right-0 border-y-2 border-primary overflow-hidden z-10 shadow-sm transition-all cursor-pointer";
+            block.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0, 74, 198, 0.1) 4px, rgba(0, 74, 198, 0.1) 8px)';
             block.style.top = `${topOffset}px`;
             block.style.height = `${blockHeight}px`;
-            
-            if(blockHeight >= 20) block.innerHTML = `<span class="text-[10px] text-primary font-bold">Proposed</span>`;
             body.appendChild(block);
         }
         col.appendChild(body); grid.appendChild(col);
     });
     
-    // Auto scroll to time
     if(hasValidTime) {
         const scrollContainer = document.getElementById('assistant-scroll-container');
         if(scrollContainer) scrollContainer.scrollTop = Math.max(0, topOffset - 100);
@@ -999,7 +1058,24 @@ document.getElementById('open-new-meeting-btn').addEventListener('click', () => 
     document.getElementById('newMeetingModal').classList.remove('hidden');
 });
 
-// Overlap warning check logic
+function showOverlapWarning(onConfirmCallback) {
+    pendingOverlapCallback = onConfirmCallback;
+    document.getElementById('overlapModal').classList.remove('hidden');
+}
+
+document.getElementById('overlap-cancel-btn').addEventListener('click', () => {
+    document.getElementById('overlapModal').classList.add('hidden');
+    pendingOverlapCallback = null;
+});
+
+document.getElementById('overlap-confirm-btn').addEventListener('click', () => {
+    document.getElementById('overlapModal').classList.add('hidden');
+    if (pendingOverlapCallback) {
+        pendingOverlapCallback();
+        pendingOverlapCallback = null;
+    }
+});
+
 function hasOverlap(newStart, newEnd) {
     const start = new Date(newStart).getTime();
     const end = new Date(newEnd).getTime();
@@ -1031,7 +1107,11 @@ document.getElementById('create-event-submit-btn').addEventListener('click', () 
     }
     
     if (hasOverlap(startTime, endTime)) {
-        if (!confirm("This meeting overlaps with an existing accepted meeting on your calendar. Do you still want to schedule it?")) return;
+        showOverlapWarning(() => {
+            socket.emit('create event', { title, startTime, endTime, description: desc, attendees: selectedAttendees });
+            window.closeNewMeetingModal();
+        });
+        return; 
     }
     
     socket.emit('create event', { title, startTime, endTime, description: desc, attendees: selectedAttendees });
@@ -1077,10 +1157,18 @@ function openEventDetails(evt) {
     } else {
         actionsContainer.innerHTML = `<div></div>`;
         const btns = document.createElement('div'); btns.className = "flex gap-2";
-        btns.innerHTML = `
-            <button onclick="rsvpEvent('${evt.id}', 'declined')" class="p-2 border border-border-subtle rounded ${myRsvp === 'declined' ? 'bg-error text-white' : 'bg-surface hover:bg-surface-container text-on-surface'} transition-colors" title="Decline"><span class="material-symbols-outlined text-[18px]">close</span></button>
-            <button onclick="rsvpEvent('${evt.id}', 'accepted')" class="px-4 py-1.5 font-label-md text-label-md rounded shadow-sm transition-colors flex items-center gap-1 ${myRsvp === 'accepted' ? 'bg-green-600 text-white' : 'bg-primary text-on-primary hover:bg-primary/90'}"><span class="material-symbols-outlined text-[18px]">check</span> Accept</button>
-        `;
+        
+        // FIX: Display Cancel button properly if already accepted
+        if (myRsvp === 'accepted') {
+            btns.innerHTML = `
+                <button onclick="rsvpEvent('${evt.id}', 'declined')" class="py-1.5 px-4 border border-border-subtle rounded text-error hover:bg-error-container/30 transition-colors flex items-center justify-center gap-1 font-bold text-sm shadow-sm"><span class="material-symbols-outlined text-[18px]">event_busy</span> Cancel</button>
+            `;
+        } else {
+            btns.innerHTML = `
+                <button onclick="rsvpEvent('${evt.id}', 'declined')" class="p-2 border border-border-subtle rounded ${myRsvp === 'declined' ? 'bg-error text-white' : 'bg-surface hover:bg-surface-container text-on-surface'} transition-colors" title="Decline"><span class="material-symbols-outlined text-[18px]">close</span></button>
+                <button onclick="rsvpEvent('${evt.id}', 'accepted')" class="px-4 py-1.5 font-label-md text-label-md rounded shadow-sm transition-colors flex items-center gap-1 ${myRsvp === 'accepted' ? 'bg-green-600 text-white' : 'bg-primary text-on-primary hover:bg-primary/90'}"><span class="material-symbols-outlined text-[18px]">check</span> Accept</button>
+            `;
+        }
         actionsContainer.appendChild(btns);
     }
     document.getElementById('eventDetailsModal').classList.remove('hidden');
@@ -1090,7 +1178,11 @@ window.rsvpEvent = function(eventId, status) {
     if (status === 'accepted') {
         const evt = currentEvents.find(e => e.id === eventId);
         if (evt && hasOverlap(evt.start_time, evt.end_time)) {
-            if (!confirm("Accepting this invite will cause an overlap on your calendar. Continue?")) return;
+            showOverlapWarning(() => {
+                socket.emit('rsvp event', { eventId, status });
+                document.getElementById('eventDetailsModal').classList.add('hidden');
+            });
+            return; 
         }
     }
     socket.emit('rsvp event', { eventId, status });

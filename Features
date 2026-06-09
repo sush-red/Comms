@@ -1,5 +1,6 @@
 Issues:
 
+
 End time shoudlnt let me select previous times.
 Provide the option to select 30 minutes or 1 hour so that it auto populates end time.
 I dont like the UI of displaying proposed on the scheduling assistant, just display a bar or lines.
@@ -10,18 +11,18 @@ In calendar, even after I accepted a meeting, when I go that day's box and click
 
 Additionally, it isnt accurate, I selected 4:30 to 5:30 and its blocking at 5:30 to 6 in scheduling assistant
 
+New message
+People - To display contacts of everyone in the org
+Desktop app
+meeting pop ups
+Mobile app
+Third party integrations - Zoom and outlook, AI for transacripts or MoM
+Out of office setting(profile and calendar)
+Calls and video call, screen sharing
 
+Members section in channel: Add, remove, etc.
+While adding members to channel or group should be search based as well. 
 
-
-Send invite isnt doing anything.
-
-In scheduling assistant, 
-timing ends at 5 pm and doesnt show further. Need full schedule
-It initally shows something as proposed at 11:00 am, dont want this.
-When I set a start time it should appear in the scheduling assistant, in some or the other way. 
-When I select start time and date, end date should start from that day and 15 minutes ahead of start time.
-
-Attendess, shouldnt show me all the names and check box. It should be search based.
 
 Recurring meetings.
 
