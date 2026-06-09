@@ -1,16 +1,35 @@
 Issues:
 
-1. Left side pane when we click on calendar is showing channels. We could add reminder functionalty on the pane or upcoming events for the day or any other useful feature.
+End time shoudlnt let me select previous times.
+Provide the option to select 30 minutes or 1 hour so that it auto populates end time.
+I dont like the UI of displaying proposed on the scheduling assistant, just display a bar or lines.
 
-2. Heading shows team calendar supposed to be my calendar
+Overlapping shows like a web pop up, can we make it look more aesthetic and something that fits into the deisgn.
 
-3. While creating an invite, while setting date and time, we should have bytton to click ok or confirm after setting them up
+In calendar, even after I accepted a meeting, when I go that day's box and click on meeting, it still shows accept. Since I already accepted it, it should show cancelled only.
 
-4. I am able to create a meeting, send invite and its blocking my calendar. But they attendee didnt get the option to accept the meeting or view the meeting invite. Need to add a button at the top beside new meeting, for invites.
+Additionally, it isnt accurate, I selected 4:30 to 5:30 and its blocking at 5:30 to 6 in scheduling assistant
 
-5. When we click on invites button, it should pop up with the invite and with option to accept invite, and this should go as notifcation to the sender whethery they accepted or rejected.
 
-6. Option to cancel meeting should reflect in attendees meeting notification as well.
 
-7. Ability to see attendees calendar as well if required, so that I can plan my meeting time.
-8. Recurring meetings.
+
+Send invite isnt doing anything.
+
+In scheduling assistant, 
+timing ends at 5 pm and doesnt show further. Need full schedule
+It initally shows something as proposed at 11:00 am, dont want this.
+When I set a start time it should appear in the scheduling assistant, in some or the other way. 
+When I select start time and date, end date should start from that day and 15 minutes ahead of start time.
+
+Attendess, shouldnt show me all the names and check box. It should be search based.
+
+Recurring meetings.
+
+
+Profile:
+
+In Profile, we should be able to edit, online , email must automatically pull from their login details, their status, contatc number.
+
+We could add reminder functionalty on the pane
+
+While creating an invite, while setting date and time, we should have bytton to click ok or confirm after setting them up

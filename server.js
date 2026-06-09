@@ -17,7 +17,6 @@ const db = new sqlite3.Database('./chat.db', (err) => {
 });
 
 db.serialize(() => {
-    // Existing Tables
     db.run(`CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY, room TEXT, user TEXT, text TEXT,
         file_name TEXT, file_type TEXT, file_data TEXT,
@@ -27,7 +26,6 @@ db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS custom_channels (name TEXT PRIMARY KEY, members TEXT)`);
     db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, role TEXT)`);
     
-    // Non-destructive migrations
     db.run(`ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE messages ADD COLUMN is_pinned INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE messages ADD COLUMN deleted_for TEXT DEFAULT '[]'`, () => {});
@@ -35,7 +33,6 @@ db.serialize(() => {
     db.run(`ALTER TABLE users ADD COLUMN contact TEXT DEFAULT ''`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN status_msg TEXT DEFAULT 'Available'`, () => {});
 
-    // NEW: Calendar Tables
     db.run(`CREATE TABLE IF NOT EXISTS events (
         id TEXT PRIMARY KEY, title TEXT, start_time TEXT, end_time TEXT, description TEXT, organizer TEXT
     )`);
@@ -45,7 +42,6 @@ db.serialize(() => {
 });
 
 io.on('connection', (socket) => {
-    // --- EXISTING CHAT LOGIC ---
     socket.on('login', (data) => {
         socket.username = data.username;
         socket.role = data.role;
@@ -53,26 +49,20 @@ io.on('connection', (socket) => {
 
         db.run("INSERT OR IGNORE INTO users (username, role) VALUES (?, ?)", [data.username, data.role]);
 
-        // First, fetch custom channels
         db.all("SELECT * FROM custom_channels", [], (err, rows) => {
             if (!err) {
                 const myCustomChannels = rows
                     .filter(row => JSON.parse(row.members).includes(data.username))
                     .map(row => row.name);
                 
-                // Second, fetch any DM rooms this user is part of from the messages table
                 db.all("SELECT DISTINCT room FROM messages WHERE room LIKE 'DM-%'", [], (err, dmRows) => {
                     const myDMs = [];
                     if (!err) {
                         dmRows.forEach(row => {
-                            // Check if the username is one of the two names in the DM string
                             const usersInRoom = row.room.replace('DM-', '').split('-');
-                            if (usersInRoom.includes(data.username)) {
-                                myDMs.push(row.room);
-                            }
+                            if (usersInRoom.includes(data.username)) myDMs.push(row.room);
                         });
                     }
-                    // Send both channel lists back to the client
                     socket.emit('login success', { customChannels: myCustomChannels, dmRooms: myDMs });
                 });
             }
@@ -231,9 +221,7 @@ io.on('connection', (socket) => {
             });
     });
 
-    // --- NEW: CALENDAR LOGIC ---
     socket.on('get events', () => {
-        // Fetch events where user is organizer OR an attendee
         const query = `
             SELECT e.*, 
                    (SELECT json_group_array(json_object('username', ea.username, 'status', ea.status)) 
@@ -246,6 +234,20 @@ io.on('connection', (socket) => {
         });
     });
 
+    // NEW: Get another user's calendar (Accepted events only)
+    socket.on('get user calendar', (targetUser) => {
+        const query = `
+            SELECT e.*, 
+                   (SELECT json_group_array(json_object('username', ea.username, 'status', ea.status)) 
+                    FROM event_attendees ea WHERE ea.event_id = e.id) as attendees
+            FROM events e
+            WHERE e.organizer = ? OR e.id IN (SELECT event_id FROM event_attendees WHERE username = ? AND status = 'accepted')
+        `;
+        db.all(query, [targetUser, targetUser], (err, rows) => {
+            if (!err) socket.emit('user calendar data', { targetUser, events: rows });
+        });
+    });
+
     socket.on('create event', (data) => {
         const eventId = Math.random().toString(36).substr(2, 9);
         db.run(`INSERT INTO events (id, title, start_time, end_time, description, organizer) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -254,9 +256,10 @@ io.on('connection', (socket) => {
             
             data.attendees.forEach(attendee => {
                 db.run(`INSERT INTO event_attendees (event_id, username, status) VALUES (?, ?, ?)`, [eventId, attendee, 'pending']);
+                // NEW: Notify attendee of invite
+                io.to(attendee).emit('new meeting invite', { title: data.title, organizer: socket.username });
             });
 
-            // Notify all involved users to refetch their calendar
             const involved = [socket.username, ...data.attendees];
             involved.forEach(u => io.to(u).emit('event refresh'));
         });
@@ -265,12 +268,15 @@ io.on('connection', (socket) => {
     socket.on('rsvp event', (data) => {
         db.run(`UPDATE event_attendees SET status = ? WHERE event_id = ? AND username = ?`, [data.status, data.eventId, socket.username], (err) => {
             if (!err) {
-                // Notify users in this event to refresh
                 db.all(`SELECT username FROM event_attendees WHERE event_id = ?`, [data.eventId], (err, rows) => {
                     if (!err) {
                         rows.forEach(r => io.to(r.username).emit('event refresh'));
-                        db.get(`SELECT organizer FROM events WHERE id = ?`, [data.eventId], (err, row) => {
-                            if (row) io.to(row.organizer).emit('event refresh');
+                        db.get(`SELECT title, organizer FROM events WHERE id = ?`, [data.eventId], (err, row) => {
+                            if (row) {
+                                io.to(row.organizer).emit('event refresh');
+                                // NEW: Notify organizer of RSVP
+                                io.to(row.organizer).emit('rsvp notification', { attendee: socket.username, status: data.status, title: row.title });
+                            }
                         });
                     }
                 });
@@ -279,13 +285,17 @@ io.on('connection', (socket) => {
     });
 
     socket.on('cancel event', (eventId) => {
-        db.get(`SELECT organizer FROM events WHERE id = ?`, [eventId], (err, row) => {
+        db.get(`SELECT title, organizer FROM events WHERE id = ?`, [eventId], (err, row) => {
             if (row && row.organizer === socket.username) {
                 db.all(`SELECT username FROM event_attendees WHERE event_id = ?`, [eventId], (err, rows) => {
                     db.run(`DELETE FROM events WHERE id = ?`, [eventId]);
                     db.run(`DELETE FROM event_attendees WHERE event_id = ?`, [eventId]);
                     if (!err && rows) {
-                        rows.forEach(r => io.to(r.username).emit('event refresh'));
+                        rows.forEach(r => {
+                            // NEW: Notify attendees of cancellation
+                            io.to(r.username).emit('meeting cancelled', { title: row.title, organizer: socket.username });
+                            io.to(r.username).emit('event refresh');
+                        });
                         socket.emit('event refresh');
                     }
                 });

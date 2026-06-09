@@ -20,7 +20,6 @@ let attachedFileData = null;
 let replyingToMessage = null;
 let pinnedMessagesMap = new Map(); 
 
-// Views
 const chatView = document.getElementById('chat-view');
 const calendarView = document.getElementById('calendar-view');
 const navChatBtn = document.getElementById('nav-chat-btn');
@@ -28,7 +27,6 @@ const navCalendarBtn = document.getElementById('nav-calendar-btn');
 const sidebarListsContainer = document.getElementById('sidebar-lists-container');
 const sidebarCalendarContainer = document.getElementById('sidebar-calendar-container');
 
-// Chat UI DOM
 const loginOverlay = document.getElementById('login-overlay');
 const usernameInput = document.getElementById('username-input');
 const roleInput = document.getElementById('role-input');
@@ -65,15 +63,13 @@ const membersBtn = document.getElementById('members-btn');
 const selfProfileBtn = document.getElementById('self-profile-btn');
 let currentProfileViewing = null;
 
-// --- VIEW TOGGLER ---
+let viewingOtherUser = null;
+let otherUserEvents = [];
+
 navChatBtn.addEventListener('click', () => {
     chatView.classList.remove('hidden'); chatView.classList.add('flex');
     calendarView.classList.add('hidden'); calendarView.classList.remove('flex');
-    
-    sidebarListsContainer.classList.remove('hidden');
-    sidebarCalendarContainer.classList.add('hidden');
-    sidebarCalendarContainer.classList.remove('flex');
-    
+    sidebarListsContainer.classList.remove('hidden'); sidebarCalendarContainer.classList.add('hidden'); sidebarCalendarContainer.classList.remove('flex');
     navChatBtn.className = 'flex-1 bg-primary text-on-primary py-2 rounded font-bold text-sm shadow-sm transition-all flex justify-center items-center gap-1';
     navCalendarBtn.className = 'flex-1 text-on-primary/70 hover:text-on-primary py-2 rounded font-bold text-sm transition-all flex justify-center items-center gap-1';
 });
@@ -81,23 +77,16 @@ navChatBtn.addEventListener('click', () => {
 navCalendarBtn.addEventListener('click', () => {
     calendarView.classList.remove('hidden'); calendarView.classList.add('flex');
     chatView.classList.add('hidden'); chatView.classList.remove('flex');
-    
-    sidebarListsContainer.classList.add('hidden');
-    sidebarCalendarContainer.classList.remove('hidden');
-    sidebarCalendarContainer.classList.add('flex');
-    
+    sidebarListsContainer.classList.add('hidden'); sidebarCalendarContainer.classList.remove('hidden'); sidebarCalendarContainer.classList.add('flex');
     navCalendarBtn.className = 'flex-1 bg-primary text-on-primary py-2 rounded font-bold text-sm shadow-sm transition-all flex justify-center items-center gap-1';
     navChatBtn.className = 'flex-1 text-on-primary/70 hover:text-on-primary py-2 rounded font-bold text-sm transition-all flex justify-center items-center gap-1';
-    
     socket.emit('get events');
 });
 
-// --- EXISTING CHAT LOGIC ---
 joinBtn.addEventListener('click', () => {
   const enteredName = usernameInput.value.trim();
   if (enteredName !== "") {
-    username = enteredName;
-    userRole = roleInput.value; 
+    username = enteredName; userRole = roleInput.value; 
     if (userRole === 'admin' || userRole === 'central') createChannelBtn.style.display = 'block';
     loginOverlay.style.display = 'none'; 
     if (Notification.permission !== "granted" && Notification.permission !== "denied") Notification.requestPermission();
@@ -107,10 +96,7 @@ joinBtn.addEventListener('click', () => {
 });
 
 socket.on('login success', (data) => {
-    // Load custom group channels
     data.customChannels.forEach(ch => addChannelToSidebar(ch, channelList));
-    
-    // Load historical Direct Messages
     if (data.dmRooms) {
         data.dmRooms.forEach(dmRoom => {
             const otherUser = dmRoom.replace('DM-', '').split('-').find(u => u !== username);
@@ -119,14 +105,8 @@ socket.on('login success', (data) => {
     }
 });
 
-socket.on('global presence', (users) => {
-    availableUsers = users.filter(u => u !== username);
-    updateOnlineStatusUI();
-});
-
-socket.on('room directory', (users) => {
-    mentionableUsers = users.filter(u => u !== username);
-});
+socket.on('global presence', (users) => { availableUsers = users.filter(u => u !== username); updateOnlineStatusUI(); });
+socket.on('room directory', (users) => { mentionableUsers = users.filter(u => u !== username); });
 
 function updateOnlineStatusUI() {
     document.querySelectorAll('#dm-list .channel-item').forEach(item => {
@@ -145,11 +125,8 @@ function updateOnlineStatusUI() {
 
 muteBtn.addEventListener('click', () => {
     const icon = muteBtn.querySelector('span');
-    if (mutedRooms.has(currentRoom)) {
-        mutedRooms.delete(currentRoom); icon.textContent = 'notifications'; muteBtn.classList.remove('text-unread-coral');
-    } else {
-        mutedRooms.add(currentRoom); icon.textContent = 'notifications_off'; muteBtn.classList.add('text-unread-coral');
-    }
+    if (mutedRooms.has(currentRoom)) { mutedRooms.delete(currentRoom); icon.textContent = 'notifications'; muteBtn.classList.remove('text-unread-coral'); } 
+    else { mutedRooms.add(currentRoom); icon.textContent = 'notifications_off'; muteBtn.classList.add('text-unread-coral'); }
 });
 
 mentionsHub.addEventListener('click', (e) => {
@@ -169,16 +146,19 @@ function processMentionAlert(data) {
 
     const alertDiv = document.createElement('div');
     alertDiv.className = 'p-3 border-b border-border-subtle font-body-sm text-on-surface cursor-pointer hover:bg-surface-container-low transition-colors';
-    const displayRoomName = data.room.startsWith('DM-') ? 'Direct Message' : `#${data.room}`;
-    alertDiv.innerHTML = `<div class="font-bold text-primary mb-1">${data.user} in ${displayRoomName}</div>${data.text}`;
-    alertDiv.addEventListener('click', () => {
-        ensureSidebarItemExists(data.room, data.user);
-        const targetEl = document.querySelector(`.channel-item[data-room="${data.room}"]`);
-        if (targetEl) {
-            switchRoom(targetEl);
-            if(calendarView.classList.contains('flex')) navChatBtn.click(); // Switch to chat if in calendar
-        }
-    });
+    
+    if(data.room === 'Calendar') {
+        alertDiv.innerHTML = `<div class="font-bold text-primary mb-1"><span class="material-symbols-outlined text-[14px] align-middle">calendar_today</span> Calendar Update</div>${data.text}`;
+        alertDiv.addEventListener('click', () => { navCalendarBtn.click(); });
+    } else {
+        const displayRoomName = data.room.startsWith('DM-') ? 'Direct Message' : `#${data.room}`;
+        alertDiv.innerHTML = `<div class="font-bold text-primary mb-1">${data.user} in ${displayRoomName}</div>${data.text}`;
+        alertDiv.addEventListener('click', () => {
+            ensureSidebarItemExists(data.room, data.user);
+            const targetEl = document.querySelector(`.channel-item[data-room="${data.room}"]`);
+            if (targetEl) { switchRoom(targetEl); if(calendarView.classList.contains('flex')) navChatBtn.click(); }
+        });
+    }
     mentionsDropdown.prepend(alertDiv);
 }
 
@@ -192,6 +172,21 @@ socket.on('unread alert', (data) => {
     }
     if (data.text && data.text.toLowerCase().includes(`@${username.toLowerCase()}`)) processMentionAlert(data);
     else if (!mutedRooms.has(data.room) && data.user !== username) playDing(); 
+});
+
+socket.on('new meeting invite', (data) => {
+    playDing(); socket.emit('get events');
+    processMentionAlert({ user: 'System', text: `<strong>${data.organizer}</strong> invited you to "${data.title}"`, room: 'Calendar' });
+});
+
+socket.on('meeting cancelled', (data) => {
+    playDing(); socket.emit('get events');
+    processMentionAlert({ user: 'System', text: `<strong>${data.organizer}</strong> cancelled "${data.title}"`, room: 'Calendar' });
+});
+
+socket.on('rsvp notification', (data) => {
+    if(calendarView.classList.contains('flex')) socket.emit('get events');
+    processMentionAlert({ user: 'System', text: `<strong>${data.attendee}</strong> ${data.status} your invite for "${data.title}"`, room: 'Calendar' });
 });
 
 function addChannelToSidebar(roomName, targetList) {
@@ -455,7 +450,6 @@ function displayMessage(data, isHistory = false, prepend = false) {
   const senderName = document.createElement('span');
   senderName.className = 'font-label-md text-label-md text-on-surface';
   senderName.textContent = isMe ? 'You' : data.user;
-  
 
   const bubble = document.createElement('div');
   bubble.className = isMe ? 'bg-outgoing-blue text-on-surface p-3 md:p-4 rounded-bubble-outgoing border border-primary/10 relative shadow-sm' : 'bg-surface-container-lowest text-on-surface p-3 md:p-4 rounded-bubble-incoming shadow-ambient border border-border-subtle/50 relative';
@@ -513,14 +507,10 @@ function displayMessage(data, isHistory = false, prepend = false) {
       contentCol.appendChild(reactionBar);
   }
   if (!isMe) {
-      const avatarDiv = document.createElement('div');
-      // Added cursor-pointer, hover ring, and transition
-      avatarDiv.className = 'w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary font-bold mb-6 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all shadow-sm';
-      avatarDiv.textContent = data.user.charAt(0).toUpperCase();
-      
-      // Added the click listener to the avatar bubble
+      const avatarDiv = document.createElement('div'); 
+      avatarDiv.className = 'w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary font-bold mb-6 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all shadow-sm'; 
+      avatarDiv.textContent = data.user.charAt(0).toUpperCase(); 
       avatarDiv.addEventListener('click', () => fetchAndShowProfile(data.user));
-      
       container.appendChild(avatarDiv);
   }
   container.appendChild(contentCol);
@@ -560,6 +550,32 @@ socket.on('update reaction', function(data) {
 input.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px'; if (this.value === '') this.style.height = 'auto'; });
 
 function fetchAndShowProfile(targetUsername) { currentProfileViewing = targetUsername; socket.emit('get profile', targetUsername); }
+
+window.viewCalendarFromProfile = function(targetUser) {
+    profileOverlay.style.display = 'none';
+    navCalendarBtn.click();
+    socket.emit('get user calendar', targetUser);
+};
+
+socket.on('user calendar data', (data) => {
+    viewingOtherUser = data.targetUser;
+    otherUserEvents = data.events;
+    document.getElementById('other-calendar-name').textContent = data.targetUser;
+    document.getElementById('viewing-other-calendar-banner').classList.remove('hidden');
+    if(!document.getElementById('calendar-month-label').innerHTML.includes('Read Only')) {
+        document.getElementById('calendar-month-label').innerHTML += ` <span class="text-sm font-normal text-on-surface-variant bg-surface-container-low px-2 py-1 rounded shadow-sm">Read Only</span>`;
+    }
+    renderCalendar();
+});
+
+document.getElementById('return-my-calendar-btn').addEventListener('click', () => {
+    viewingOtherUser = null;
+    document.getElementById('viewing-other-calendar-banner').classList.add('hidden');
+    const label = document.getElementById('calendar-month-label');
+    if(label.querySelector('span')) label.querySelector('span').remove();
+    socket.emit('get events');
+});
+
 socket.on('profile data', (data) => {
     document.getElementById('profile-avatar').textContent = data.username.charAt(0).toUpperCase(); document.getElementById('profile-name').textContent = data.username; document.getElementById('profile-role').textContent = data.role === 'user' ? 'Standard User' : data.role;
     document.getElementById('profile-email').textContent = data.email || 'Not set'; document.getElementById('profile-contact').textContent = data.contact || 'Not set'; document.getElementById('profile-status-msg').textContent = data.status_msg || 'Available';
@@ -567,11 +583,19 @@ socket.on('profile data', (data) => {
     const statusContainer = document.getElementById('profile-online-status'); const statusDot = document.getElementById('profile-status-dot'); const statusText = document.getElementById('profile-status-text');
     if (isOnline) { statusContainer.className = "mt-2 px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 bg-green-100 text-green-700"; statusDot.className = "w-2 h-2 rounded-full bg-green-500"; statusText.textContent = "Online"; } 
     else { statusContainer.className = "mt-2 px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 bg-gray-100 text-gray-600"; statusDot.className = "w-2 h-2 rounded-full bg-gray-400"; statusText.textContent = "Offline"; }
+    
     const actionsContainer = document.getElementById('profile-actions'); actionsContainer.innerHTML = ''; 
-    if (data.username === username) actionsContainer.innerHTML = `<button class="w-full bg-surface-container-high text-on-surface py-2 rounded-lg hover:bg-border-subtle transition-colors flex items-center justify-center gap-2 font-bold text-sm"><span class="material-symbols-outlined text-[18px]">settings</span> Settings</button>`;
-    else actionsContainer.innerHTML = `<button onclick="messageFromProfile('${data.username}')" class="w-full bg-primary-container text-on-primary py-2 rounded-lg hover:bg-primary transition-colors flex items-center justify-center gap-2 font-bold text-sm shadow-sm"><span class="material-symbols-outlined text-[18px]">chat</span> Message</button>`;
+    if (data.username === username) {
+        actionsContainer.innerHTML = `<button class="w-full bg-surface-container-high text-on-surface py-2 rounded-lg hover:bg-border-subtle transition-colors flex items-center justify-center gap-2 font-bold text-sm"><span class="material-symbols-outlined text-[18px]">settings</span> Settings</button>`;
+    } else {
+        actionsContainer.innerHTML = `
+            <button onclick="messageFromProfile('${data.username}')" class="flex-1 bg-primary-container text-on-primary py-2 rounded-lg hover:bg-primary transition-colors flex items-center justify-center gap-2 font-bold text-sm shadow-sm"><span class="material-symbols-outlined text-[18px]">chat</span> Message</button>
+            <button onclick="viewCalendarFromProfile('${data.username}')" class="flex-1 bg-surface-container-low text-on-surface-variant border border-border-subtle py-2 rounded-lg hover:bg-surface-container transition-colors flex items-center justify-center gap-2 font-bold text-sm shadow-sm"><span class="material-symbols-outlined text-[18px]">calendar_today</span> View Calendar</button>
+        `;
+    }
     profileOverlay.style.display = 'flex';
 });
+
 window.messageFromProfile = function(targetUser) { profileOverlay.style.display = 'none'; openDirectMessage(targetUser); };
 
 membersBtn.addEventListener('click', () => {
@@ -581,7 +605,7 @@ membersBtn.addEventListener('click', () => {
     allMembers.forEach(member => {
         const isOnline = availableUsers.includes(member) || member === username;
         const div = document.createElement('div'); div.className = "flex items-center justify-between p-2 hover:bg-surface-container-low rounded-lg cursor-pointer transition-colors";
-        div.innerHTML = `<div class="flex items-center gap-3"><div class="w-8 h-8 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs relative">${member.charAt(0).toUpperCase()}<span class="absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}"></span></div><span class="font-body-sm font-bold text-on-surface">${member === username ? member + ' (You)' : member}</span></div>`;
+        div.innerHTML = `<div class="flex items-center gap-3"><div class="w-8 h-8 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs relative cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all">${member.charAt(0).toUpperCase()}<span class="absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}"></span></div><span class="font-body-sm font-bold text-on-surface">${member === username ? member + ' (You)' : member}</span></div>`;
         div.addEventListener('click', () => { membersOverlay.style.display = 'none'; fetchAndShowProfile(member); }); listContainer.appendChild(div);
     });
     membersOverlay.style.display = 'flex';
@@ -602,204 +626,69 @@ const monthLabel = document.getElementById('calendar-month-label');
 document.getElementById('cal-prev-btn').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(); });
 document.getElementById('cal-next-btn').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(); });
 document.getElementById('cal-today-btn').addEventListener('click', () => { currentDate = new Date(); renderCalendar(); });
+document.getElementById('open-invites-btn').addEventListener('click', () => { document.getElementById('invitesModal').classList.remove('hidden'); });
 
-function renderCalendar() {
-    gridContainer.innerHTML = '';
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    
-    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    monthLabel.textContent = `${monthNames[month]} ${year}`;
+function updateInvitesUI() {
+    const invitesContainer = document.getElementById('invites-list-container');
+    const badge = document.getElementById('invites-badge');
+    if(!invitesContainer || !badge) return;
 
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    // Padding blanks for the start of the month
-    for (let i = 0; i < firstDay; i++) {
-        const emptyDiv = document.createElement('div');
-        emptyDiv.className = 'bg-surface p-2 min-h-[100px] bg-surface-container-low/50';
-        gridContainer.appendChild(emptyDiv);
-    }
-
-    // Actual days
-    for (let i = 1; i <= daysInMonth; i++) {
-        const dayDiv = document.createElement('div');
-        dayDiv.className = 'bg-surface p-2 min-h-[100px] hover:bg-surface-container-low transition-colors group relative border-t-2 border-transparent';
-        
-        const isToday = new Date().getDate() === i && new Date().getMonth() === month && new Date().getFullYear() === year;
-        
-        let headerHtml = '';
-        if (isToday) {
-            dayDiv.classList.add('bg-mention-gold/10');
-            headerHtml = `<span class="w-6 h-6 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-sm mb-1 shadow-sm mx-auto md:mx-0">${i}</span>`;
-        } else {
-            headerHtml = `<span class="font-label-sm text-on-surface">${i}</span>`;
-        }
-        
-        dayDiv.innerHTML = `${headerHtml}<div class="flex flex-col gap-1 mt-1 events-container" id="day-${year}-${month}-${i}"></div>`;
-        gridContainer.appendChild(dayDiv);
-    }
-    
-    // Plot events
-    plotEvents();
-    updateUpcomingEvents();
-}
-
-function plotEvents() {
-    // Clear all existing pills
-    document.querySelectorAll('.events-container').forEach(el => el.innerHTML = '');
-    
-    currentEvents.forEach(evt => {
-        const startDate = new Date(evt.start_time);
-        const y = startDate.getFullYear();
-        const m = startDate.getMonth();
-        const d = startDate.getDate();
-        
-        const targetContainer = document.getElementById(`day-${y}-${m}-${d}`);
-        if (targetContainer) {
-            const myRsvpStatus = JSON.parse(evt.attendees).find(a => a.username === username)?.status || 'pending';
-            const isOrg = evt.organizer === username;
-            
-            let colorClass = 'bg-surface-container-high text-on-surface-variant border border-border-subtle border-dashed'; // Pending default
-            if (isOrg || myRsvpStatus === 'accepted') colorClass = 'bg-primary-container text-on-primary shadow-sm';
-            
-            const timeString = startDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            
-            const pill = document.createElement('div');
-            pill.className = `${colorClass} rounded px-2 py-1 text-xs truncate flex items-center gap-1 hover:opacity-90 transition-opacity cursor-pointer`;
-            pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${isOrg || myRsvpStatus === 'accepted' ? 'bg-primary' : 'bg-outline'} flex-shrink-0"></span> ${timeString} - ${evt.title}`;
-            
-            pill.addEventListener('click', (e) => {
-                e.stopPropagation();
-                openEventDetails(evt);
-            });
-            targetContainer.appendChild(pill);
-        }
-    });
-}
-
-// Data Handling
-socket.on('events data', (events) => {
-    currentEvents = events;
-    renderCalendar();
-});
-
-socket.on('event refresh', () => {
-    if (calendarView.classList.contains('flex')) socket.emit('get events');
-});
-
-// Create Modal Logic
-document.getElementById('open-new-meeting-btn').addEventListener('click', () => {
-    document.getElementById('event-title').value = '';
-    document.getElementById('event-start').value = '';
-    document.getElementById('event-end').value = '';
-    document.getElementById('event-desc').value = '';
-    
-    const attList = document.getElementById('event-attendees-list');
-    attList.innerHTML = '';
-    mentionableUsers.forEach(u => {
-        attList.innerHTML += `<label class="flex items-center gap-2 mb-1 text-sm cursor-pointer hover:bg-white p-1 rounded"><input type="checkbox" value="${u}"> ${u}</label>`;
-    });
-    
-    document.getElementById('newMeetingModal').classList.remove('hidden');
-});
-
-document.getElementById('create-event-submit-btn').addEventListener('click', () => {
-    const title = document.getElementById('event-title').value.trim();
-    const startTime = document.getElementById('event-start').value;
-    const endTime = document.getElementById('event-end').value;
-    const desc = document.getElementById('event-desc').value.trim();
-    const attendees = Array.from(document.getElementById('event-attendees-list').querySelectorAll('input:checked')).map(cb => cb.value);
-    
-    if(!title || !startTime) return alert('Title and Start Time are required.');
-    
-    socket.emit('create event', { title, startTime, endTime, description: desc, attendees });
-    document.getElementById('newMeetingModal').classList.add('hidden');
-});
-
-// View Modal Logic
-function openEventDetails(evt) {
-    document.getElementById('view-event-title').textContent = evt.title;
-    
-    const start = new Date(evt.start_time);
-    const end = evt.end_time ? new Date(evt.end_time) : null;
-    
-    document.getElementById('view-event-date').textContent = start.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    document.getElementById('view-event-time').textContent = start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) + (end ? ` - ${end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : '');
-    
-    document.getElementById('view-event-org-initial').textContent = evt.organizer.charAt(0).toUpperCase();
-    document.getElementById('view-event-org-name').textContent = evt.organizer === username ? `${evt.organizer} (You)` : evt.organizer;
-    
-    document.getElementById('view-event-desc').textContent = evt.description || "No description provided.";
-    
-    const attendeesList = document.getElementById('view-event-attendees');
-    attendeesList.innerHTML = '';
-    
-    const attendeesArray = JSON.parse(evt.attendees);
-    document.getElementById('view-event-attendee-count').textContent = `Attendees (${attendeesArray.length})`;
-    
-    let myRsvp = null;
-    
-    attendeesArray.forEach(att => {
-        if(att.username === username) myRsvp = att.status;
-        let statusIcon = '';
-        if(att.status === 'accepted') statusIcon = '<span class="material-symbols-outlined text-green-600 text-[14px]">check_circle</span>';
-        else if(att.status === 'declined') statusIcon = '<span class="material-symbols-outlined text-error text-[14px]">cancel</span>';
-        else statusIcon = '<span class="material-symbols-outlined text-on-surface-variant text-[14px]">help</span>';
-
-        attendeesList.innerHTML += `
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <div class="w-6 h-6 rounded-full bg-surface-container-high flex items-center justify-center text-xs text-on-surface-variant">${att.username.charAt(0).toUpperCase()}</div>
-                    <span class="font-body-sm text-on-surface ${att.status === 'declined' ? 'line-through opacity-60' : ''}">${att.username}</span>
-                </div>
-                ${statusIcon}
-            </div>
-        `;
+    const pendingInvites = currentEvents.filter(evt => {
+        if (evt.organizer === username) return false;
+        const att = JSON.parse(evt.attendees).find(a => a.username === username);
+        return att && att.status === 'pending';
     });
 
-    const actionsContainer = document.getElementById('view-event-actions');
-    actionsContainer.innerHTML = '';
-    
-    if(evt.organizer === username) {
-        // Organizer controls
-        actionsContainer.innerHTML = `
-            <button onclick="deleteEvent('${evt.id}')" class="text-error font-label-md text-label-md hover:bg-error-container/30 px-3 py-1.5 rounded transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-[18px]">delete</span> Cancel Meeting</button>
-            <div></div> `;
+    if (pendingInvites.length > 0) {
+        badge.textContent = pendingInvites.length;
+        badge.classList.remove('hidden');
     } else {
-        // Attendee controls
-        actionsContainer.innerHTML = `<div></div>`; // Spacer
-        const btns = document.createElement('div');
-        btns.className = "flex gap-2";
-        
-        btns.innerHTML = `
-            <button onclick="rsvpEvent('${evt.id}', 'declined')" class="p-2 border border-border-subtle rounded ${myRsvp === 'declined' ? 'bg-error text-white' : 'bg-surface hover:bg-surface-container text-on-surface'} transition-colors" title="Decline"><span class="material-symbols-outlined text-[18px]">close</span></button>
-            <button onclick="rsvpEvent('${evt.id}', 'accepted')" class="px-4 py-1.5 font-label-md text-label-md rounded shadow-sm transition-colors flex items-center gap-1 ${myRsvp === 'accepted' ? 'bg-green-600 text-white' : 'bg-primary text-on-primary hover:bg-primary/90'}"><span class="material-symbols-outlined text-[18px]">check</span> Accept</button>
-        `;
-        actionsContainer.appendChild(btns);
+        badge.classList.add('hidden');
     }
-    
-    document.getElementById('eventDetailsModal').classList.remove('hidden');
+
+    invitesContainer.innerHTML = '';
+    if (pendingInvites.length === 0) {
+        invitesContainer.innerHTML = '<p class="text-on-surface-variant text-center py-4 text-sm italic">No pending invites.</p>';
+    } else {
+        pendingInvites.forEach(evt => {
+            const start = new Date(evt.start_time);
+            const div = document.createElement('div');
+            div.className = "bg-surface-container-lowest border border-border-subtle rounded-lg p-3 shadow-sm flex flex-col gap-2";
+            div.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h4 class="font-bold text-on-surface text-sm">${evt.title}</h4>
+                        <p class="text-xs text-on-surface-variant mt-0.5"><span class="font-semibold text-primary">${evt.organizer}</span> invited you</p>
+                    </div>
+                </div>
+                <div class="text-xs text-on-surface-variant flex items-center gap-1 bg-surface-container-low p-1.5 rounded w-fit">
+                    <span class="material-symbols-outlined text-[14px]">schedule</span>
+                    ${start.toLocaleDateString()} at ${start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                </div>
+                <div class="flex gap-2 mt-1">
+                    <button onclick="rsvpEvent('${evt.id}', 'declined'); document.getElementById('invitesModal').classList.add('hidden')" class="flex-1 py-1.5 border border-border-subtle rounded hover:bg-error hover:text-white transition-colors text-sm font-bold text-on-surface-variant">Decline</button>
+                    <button onclick="rsvpEvent('${evt.id}', 'accepted'); document.getElementById('invitesModal').classList.add('hidden')" class="flex-1 py-1.5 bg-primary text-on-primary rounded hover:bg-primary/90 transition-colors shadow-sm text-sm font-bold">Accept</button>
+                </div>
+            `;
+            invitesContainer.appendChild(div);
+        });
+    }
 }
 
-window.rsvpEvent = function(eventId, status) {
-    socket.emit('rsvp event', { eventId, status });
-    document.getElementById('eventDetailsModal').classList.add('hidden');
-};
-
-window.deleteEvent = function(eventId) {
-    if(confirm("Are you sure you want to cancel this meeting for everyone?")) {
-        socket.emit('cancel event', eventId);
-        document.getElementById('eventDetailsModal').classList.add('hidden');
-    }
-};
 function updateUpcomingEvents() {
     const list = document.getElementById('upcoming-events-list');
     if(!list) return;
     list.innerHTML = '';
     
     const today = new Date();
-    const todayEvents = currentEvents.filter(evt => {
+    const eventsToUse = viewingOtherUser ? otherUserEvents : currentEvents;
+    
+    const todayEvents = eventsToUse.filter(evt => {
+        if (!viewingOtherUser && evt.organizer !== username) {
+            const att = JSON.parse(evt.attendees).find(a => a.username === username);
+            if (!att || att.status !== 'accepted') return false;
+        }
+        
         const evtDate = new Date(evt.start_time);
         return evtDate.getDate() === today.getDate() && 
                evtDate.getMonth() === today.getMonth() && 
@@ -820,3 +709,397 @@ function updateUpcomingEvents() {
         list.appendChild(div);
     });
 }
+
+function renderCalendar() {
+    gridContainer.innerHTML = '';
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const labelSpan = monthLabel.querySelector('span');
+    monthLabel.innerHTML = `${monthNames[month]} ${year}`;
+    if (labelSpan) monthLabel.appendChild(labelSpan);
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    for (let i = 0; i < firstDay; i++) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'bg-surface p-2 min-h-[100px] bg-surface-container-low/50';
+        gridContainer.appendChild(emptyDiv);
+    }
+
+    for (let i = 1; i <= daysInMonth; i++) {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'bg-surface p-2 min-h-[100px] hover:bg-surface-container-low transition-colors group relative border-t-2 border-transparent';
+        
+        const isToday = new Date().getDate() === i && new Date().getMonth() === month && new Date().getFullYear() === year;
+        
+        let headerHtml = '';
+        if (isToday) {
+            dayDiv.classList.add('bg-mention-gold/10');
+            headerHtml = `<span class="w-6 h-6 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-sm mb-1 shadow-sm mx-auto md:mx-0">${i}</span>`;
+        } else {
+            headerHtml = `<span class="font-label-sm text-on-surface">${i}</span>`;
+        }
+        
+        dayDiv.innerHTML = `${headerHtml}<div class="flex flex-col gap-1 mt-1 events-container" id="day-${year}-${month}-${i}"></div>`;
+        gridContainer.appendChild(dayDiv);
+    }
+    
+    plotEvents();
+    updateUpcomingEvents();
+    if (!viewingOtherUser) updateInvitesUI();
+}
+
+function plotEvents() {
+    document.querySelectorAll('.events-container').forEach(el => el.innerHTML = '');
+    const eventsToUse = viewingOtherUser ? otherUserEvents : currentEvents;
+    
+    eventsToUse.forEach(evt => {
+        const startDate = new Date(evt.start_time);
+        const y = startDate.getFullYear();
+        const m = startDate.getMonth();
+        const d = startDate.getDate();
+        
+        const targetContainer = document.getElementById(`day-${y}-${m}-${d}`);
+        if (targetContainer) {
+            
+            if (viewingOtherUser) {
+                const timeString = startDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                const pill = document.createElement('div');
+                pill.className = `bg-surface-container text-on-surface-variant rounded px-2 py-1 text-xs truncate flex items-center gap-1 opacity-80`;
+                pill.innerHTML = `<span class="material-symbols-outlined text-[12px] flex-shrink-0">lock</span> ${timeString} - Busy`;
+                targetContainer.appendChild(pill);
+                return; 
+            }
+
+            const myRsvpStatus = JSON.parse(evt.attendees).find(a => a.username === username)?.status || 'pending';
+            const isOrg = evt.organizer === username;
+            
+            if (!isOrg && myRsvpStatus === 'declined') {
+                return; 
+            }
+
+            let colorClass = 'bg-surface-container-high text-on-surface-variant border border-border-subtle border-dashed'; 
+            if (isOrg || myRsvpStatus === 'accepted') colorClass = 'bg-primary-container text-on-primary shadow-sm';
+            
+            const timeString = startDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            
+            const pill = document.createElement('div');
+            pill.className = `${colorClass} rounded px-2 py-1 text-xs truncate flex items-center gap-1 hover:opacity-90 transition-opacity cursor-pointer`;
+            pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${isOrg || myRsvpStatus === 'accepted' ? 'bg-primary' : 'bg-outline'} flex-shrink-0"></span> ${timeString} - ${evt.title}`;
+            
+            pill.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openEventDetails(evt);
+            });
+            targetContainer.appendChild(pill);
+        }
+    });
+}
+
+socket.on('events data', (events) => {
+    currentEvents = events;
+    renderCalendar();
+});
+
+socket.on('event refresh', () => {
+    if (calendarView.classList.contains('flex') && !viewingOtherUser) socket.emit('get events');
+});
+
+// --- NEW SCHEDULING ASSISTANT LOGIC ---
+let isAssistantOpen = false;
+let selectedAttendees = [];
+
+// Search and add attendees
+const searchInputAtt = document.getElementById('attendee-search-input');
+const searchDropdownAtt = document.getElementById('attendee-search-dropdown');
+const selectedContainer = document.getElementById('selected-attendees-container');
+
+searchInputAtt.addEventListener('input', () => {
+    const val = searchInputAtt.value.toLowerCase();
+    searchDropdownAtt.innerHTML = '';
+    if (!val) { searchDropdownAtt.classList.add('hidden'); return; }
+
+    const matches = mentionableUsers.filter(u => u.toLowerCase().includes(val) && !selectedAttendees.includes(u));
+    if (matches.length > 0) {
+        matches.forEach(u => {
+            const div = document.createElement('div');
+            div.className = 'p-2 hover:bg-surface-container-low cursor-pointer text-sm font-label-md';
+            div.textContent = u;
+            div.addEventListener('click', () => {
+                selectedAttendees.push(u);
+                searchInputAtt.value = '';
+                searchDropdownAtt.classList.add('hidden');
+                renderSelectedAttendees();
+                if(isAssistantOpen) updateAssistantGrid();
+            });
+            searchDropdownAtt.appendChild(div);
+        });
+        searchDropdownAtt.classList.remove('hidden');
+    } else {
+        searchDropdownAtt.classList.add('hidden');
+    }
+});
+
+function renderSelectedAttendees() {
+    selectedContainer.innerHTML = '';
+    selectedAttendees.forEach(u => {
+        const pill = document.createElement('div');
+        pill.className = 'bg-surface-container-high border border-outline-variant rounded-full px-3 py-1 flex items-center gap-1 text-sm font-label-md';
+        pill.innerHTML = `${u} <span class="material-symbols-outlined text-[14px] cursor-pointer hover:text-error" onclick="removeAttendee('${u}')">close</span>`;
+        selectedContainer.appendChild(pill);
+    });
+}
+
+window.removeAttendee = function(u) {
+    selectedAttendees = selectedAttendees.filter(a => a !== u);
+    renderSelectedAttendees();
+    if(isAssistantOpen) updateAssistantGrid();
+};
+
+// Auto-populate End Time (+15 mins)
+document.getElementById('event-start').addEventListener('change', function() {
+    const startVal = this.value;
+    if(startVal) {
+        const startDate = new Date(startVal);
+        const endDateInput = document.getElementById('event-end');
+        
+        // Only override if end time is empty or before start time
+        const currentEnd = new Date(endDateInput.value);
+        if(!endDateInput.value || currentEnd <= startDate) {
+            const newEnd = new Date(startDate.getTime() + 15 * 60000);
+            const tzOffset = newEnd.getTimezoneOffset() * 60000;
+            const localISOTime = (new Date(newEnd - tzOffset)).toISOString().slice(0,16);
+            endDateInput.value = localISOTime;
+        }
+        if(isAssistantOpen) updateAssistantGrid();
+    }
+});
+
+document.getElementById('event-end').addEventListener('change', () => {
+    if(isAssistantOpen) updateAssistantGrid();
+});
+
+// Toggle Assistant
+document.getElementById('toggle-assistant-btn').addEventListener('click', () => {
+    isAssistantOpen = !isAssistantOpen;
+    const modal = document.getElementById('newMeetingModalContent');
+    const pane = document.getElementById('scheduling-assistant-pane');
+    const btn = document.getElementById('toggle-assistant-btn');
+    
+    if(isAssistantOpen) {
+        modal.classList.replace('max-w-lg', 'max-w-5xl');
+        pane.classList.remove('hidden'); pane.classList.add('flex');
+        btn.innerHTML = `<span class="material-symbols-outlined text-[18px]">close_fullscreen</span> Close Scheduling Assistant`;
+        updateAssistantGrid();
+    } else {
+        modal.classList.replace('max-w-5xl', 'max-w-lg');
+        pane.classList.add('hidden'); pane.classList.remove('flex');
+        btn.innerHTML = `<span class="material-symbols-outlined text-[18px]">calendar_month</span> Open Scheduling Assistant`;
+    }
+});
+
+// Generate 24hr Assistant Grid dynamically
+window.updateAssistantGrid = function() {
+    const grid = document.getElementById('assistant-attendees-grid');
+    if(!grid) return;
+    
+    grid.innerHTML = '';
+    
+    // Time Column
+    const timeCol = document.createElement('div');
+    timeCol.className = 'flex flex-col text-[10px] text-on-surface-variant/60 sticky left-0 bg-surface-container-low z-20 pr-2 min-w-[60px] border-r border-border-subtle';
+    for(let i=0; i<24; i++) {
+        const hour = i === 0 ? 12 : (i > 12 ? i - 12 : i);
+        const ampm = i < 12 ? 'AM' : 'PM';
+        const timeStr = `${hour.toString().padStart(2, '0')}:00 ${ampm}`;
+        const slot = document.createElement('div');
+        slot.style.height = '60px'; // 1 min = 1px
+        slot.textContent = timeStr;
+        timeCol.appendChild(slot);
+    }
+    grid.appendChild(timeCol);
+    
+    const attendeesToShow = [username, ...selectedAttendees];
+    const startInput = document.getElementById('event-start').value;
+    const endInput = document.getElementById('event-end').value;
+    
+    let topOffset = 0; let blockHeight = 0; let hasValidTime = false;
+    
+    if(startInput && endInput) {
+        const startD = new Date(startInput); const endD = new Date(endInput);
+        topOffset = (startD.getHours() * 60) + startD.getMinutes();
+        blockHeight = (endD.getTime() - startD.getTime()) / 60000;
+        if(blockHeight < 0) blockHeight = 0;
+        hasValidTime = true;
+        document.getElementById('assistant-date-label').textContent = startD.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    } else {
+        document.getElementById('assistant-date-label').textContent = "Select a start time";
+    }
+    
+    attendeesToShow.forEach(att => {
+        const col = document.createElement('div');
+        col.className = "flex flex-col gap-1 min-w-[100px] flex-1 relative";
+        
+        const header = document.createElement('div');
+        header.className = "text-center mb-2 sticky top-0 bg-surface-container-low z-10 pt-2 pb-1";
+        header.innerHTML = `
+            <div class="w-8 h-8 rounded-full bg-surface-container-high border border-border-subtle mx-auto mb-1 flex items-center justify-center text-[10px] font-bold text-on-surface-variant">${att.charAt(0).toUpperCase()}</div>
+            <span class="text-[10px] block truncate text-on-surface font-bold">${att === username ? att + ' (You)' : att}</span>
+        `;
+        col.appendChild(header);
+        
+        const body = document.createElement('div');
+        body.className = "flex-1 bg-surface-container-lowest rounded border border-border-subtle relative overflow-hidden";
+        
+        for(let i=0; i<24; i++) {
+            const line = document.createElement('div');
+            line.className = "absolute left-0 right-0 border-t border-border-subtle/50";
+            line.style.top = `${i * 60}px`;
+            body.appendChild(line);
+        }
+        
+        if(hasValidTime) {
+            const block = document.createElement('div');
+            block.className = "absolute left-0 right-0 bg-primary/20 border-y border-primary flex items-center justify-center overflow-hidden z-10 shadow-sm transition-all";
+            block.style.top = `${topOffset}px`;
+            block.style.height = `${blockHeight}px`;
+            
+            if(blockHeight >= 20) block.innerHTML = `<span class="text-[10px] text-primary font-bold">Proposed</span>`;
+            body.appendChild(block);
+        }
+        col.appendChild(body); grid.appendChild(col);
+    });
+    
+    // Auto scroll to time
+    if(hasValidTime) {
+        const scrollContainer = document.getElementById('assistant-scroll-container');
+        if(scrollContainer) scrollContainer.scrollTop = Math.max(0, topOffset - 100);
+    }
+};
+
+window.closeNewMeetingModal = function() {
+    document.getElementById('newMeetingModal').classList.add('hidden');
+    if(isAssistantOpen) document.getElementById('toggle-assistant-btn').click();
+    document.getElementById('attendee-search-input').value = '';
+    document.getElementById('attendee-search-dropdown').classList.add('hidden');
+};
+
+document.getElementById('open-new-meeting-btn').addEventListener('click', () => {
+    document.getElementById('event-title').value = '';
+    document.getElementById('event-start').value = '';
+    document.getElementById('event-end').value = '';
+    document.getElementById('event-desc').value = '';
+    document.getElementById('attendee-search-input').value = '';
+    selectedAttendees = [];
+    renderSelectedAttendees();
+    
+    document.getElementById('newMeetingModal').classList.remove('hidden');
+});
+
+// Overlap warning check logic
+function hasOverlap(newStart, newEnd) {
+    const start = new Date(newStart).getTime();
+    const end = new Date(newEnd).getTime();
+    
+    return currentEvents.some(evt => {
+        const isOrg = evt.organizer === username;
+        const myAtt = JSON.parse(evt.attendees).find(a => a.username === username);
+        
+        if (!isOrg && (!myAtt || myAtt.status !== 'accepted')) return false;
+
+        const eStart = new Date(evt.start_time).getTime();
+        const eEnd = evt.end_time ? new Date(evt.end_time).getTime() : eStart + 3600000; 
+        
+        return start < eEnd && end > eStart;
+    });
+}
+
+document.getElementById('create-event-submit-btn').addEventListener('click', () => {
+    const title = document.getElementById('event-title').value.trim();
+    const startTime = document.getElementById('event-start').value;
+    let endTime = document.getElementById('event-end').value;
+    const desc = document.getElementById('event-desc').value.trim();
+    
+    if(!title || !startTime) return alert('Title and Start Time are required.');
+    
+    if (!endTime) {
+        const defaultEnd = new Date(new Date(startTime).getTime() + 15 * 60000);
+        endTime = new Date(defaultEnd.getTime() - (defaultEnd.getTimezoneOffset() * 60000)).toISOString().slice(0,16);
+    }
+    
+    if (hasOverlap(startTime, endTime)) {
+        if (!confirm("This meeting overlaps with an existing accepted meeting on your calendar. Do you still want to schedule it?")) return;
+    }
+    
+    socket.emit('create event', { title, startTime, endTime, description: desc, attendees: selectedAttendees });
+    window.closeNewMeetingModal();
+});
+
+function openEventDetails(evt) {
+    document.getElementById('view-event-title').textContent = evt.title;
+    const start = new Date(evt.start_time); const end = evt.end_time ? new Date(evt.end_time) : null;
+    
+    document.getElementById('view-event-date').textContent = start.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    document.getElementById('view-event-time').textContent = start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) + (end ? ` - ${end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : '');
+    document.getElementById('view-event-org-initial').textContent = evt.organizer.charAt(0).toUpperCase();
+    document.getElementById('view-event-org-name').textContent = evt.organizer === username ? `${evt.organizer} (You)` : evt.organizer;
+    document.getElementById('view-event-desc').textContent = evt.description || "No description provided.";
+    
+    const attendeesList = document.getElementById('view-event-attendees'); attendeesList.innerHTML = '';
+    const attendeesArray = JSON.parse(evt.attendees); document.getElementById('view-event-attendee-count').textContent = `Attendees (${attendeesArray.length})`;
+    
+    let myRsvp = null;
+    attendeesArray.forEach(att => {
+        if(att.username === username) myRsvp = att.status;
+        let statusIcon = '';
+        if(att.status === 'accepted') statusIcon = '<span class="material-symbols-outlined text-green-600 text-[14px]">check_circle</span>';
+        else if(att.status === 'declined') statusIcon = '<span class="material-symbols-outlined text-error text-[14px]">cancel</span>';
+        else statusIcon = '<span class="material-symbols-outlined text-on-surface-variant text-[14px]">help</span>';
+
+        attendeesList.innerHTML += `
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded-full bg-surface-container-high flex items-center justify-center text-xs font-bold text-on-surface-variant">${att.username.charAt(0).toUpperCase()}</div>
+                    <span class="font-body-sm text-on-surface ${att.status === 'declined' ? 'line-through opacity-60' : ''}">${att.username}</span>
+                </div>
+                ${statusIcon}
+            </div>
+        `;
+    });
+
+    const actionsContainer = document.getElementById('view-event-actions'); actionsContainer.innerHTML = '';
+    
+    if(evt.organizer === username) {
+        actionsContainer.innerHTML = `<button onclick="deleteEvent('${evt.id}')" class="text-error font-label-md text-label-md hover:bg-error-container/30 px-3 py-1.5 rounded transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-[18px]">delete</span> Cancel Meeting</button><div></div>`;
+    } else {
+        actionsContainer.innerHTML = `<div></div>`;
+        const btns = document.createElement('div'); btns.className = "flex gap-2";
+        btns.innerHTML = `
+            <button onclick="rsvpEvent('${evt.id}', 'declined')" class="p-2 border border-border-subtle rounded ${myRsvp === 'declined' ? 'bg-error text-white' : 'bg-surface hover:bg-surface-container text-on-surface'} transition-colors" title="Decline"><span class="material-symbols-outlined text-[18px]">close</span></button>
+            <button onclick="rsvpEvent('${evt.id}', 'accepted')" class="px-4 py-1.5 font-label-md text-label-md rounded shadow-sm transition-colors flex items-center gap-1 ${myRsvp === 'accepted' ? 'bg-green-600 text-white' : 'bg-primary text-on-primary hover:bg-primary/90'}"><span class="material-symbols-outlined text-[18px]">check</span> Accept</button>
+        `;
+        actionsContainer.appendChild(btns);
+    }
+    document.getElementById('eventDetailsModal').classList.remove('hidden');
+}
+
+window.rsvpEvent = function(eventId, status) {
+    if (status === 'accepted') {
+        const evt = currentEvents.find(e => e.id === eventId);
+        if (evt && hasOverlap(evt.start_time, evt.end_time)) {
+            if (!confirm("Accepting this invite will cause an overlap on your calendar. Continue?")) return;
+        }
+    }
+    socket.emit('rsvp event', { eventId, status });
+    document.getElementById('eventDetailsModal').classList.add('hidden');
+};
+
+window.deleteEvent = function(eventId) {
+    if(confirm("Are you sure you want to cancel this meeting for everyone?")) {
+        socket.emit('cancel event', eventId);
+        document.getElementById('eventDetailsModal').classList.add('hidden');
+    }
+};
