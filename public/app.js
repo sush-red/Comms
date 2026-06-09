@@ -26,6 +26,7 @@ const calendarView = document.getElementById('calendar-view');
 const navChatBtn = document.getElementById('nav-chat-btn');
 const navCalendarBtn = document.getElementById('nav-calendar-btn');
 const sidebarListsContainer = document.getElementById('sidebar-lists-container');
+const sidebarCalendarContainer = document.getElementById('sidebar-calendar-container');
 
 // Chat UI DOM
 const loginOverlay = document.getElementById('login-overlay');
@@ -66,27 +67,28 @@ let currentProfileViewing = null;
 
 // --- VIEW TOGGLER ---
 navChatBtn.addEventListener('click', () => {
-    chatView.classList.remove('hidden');
-    chatView.classList.add('flex');
-    calendarView.classList.add('hidden');
-    calendarView.classList.remove('flex');
-    sidebarListsContainer.style.opacity = '1';
+    chatView.classList.remove('hidden'); chatView.classList.add('flex');
+    calendarView.classList.add('hidden'); calendarView.classList.remove('flex');
+    
+    sidebarListsContainer.classList.remove('hidden');
+    sidebarCalendarContainer.classList.add('hidden');
+    sidebarCalendarContainer.classList.remove('flex');
     
     navChatBtn.className = 'flex-1 bg-primary text-on-primary py-2 rounded font-bold text-sm shadow-sm transition-all flex justify-center items-center gap-1';
     navCalendarBtn.className = 'flex-1 text-on-primary/70 hover:text-on-primary py-2 rounded font-bold text-sm transition-all flex justify-center items-center gap-1';
 });
 
 navCalendarBtn.addEventListener('click', () => {
-    calendarView.classList.remove('hidden');
-    calendarView.classList.add('flex');
-    chatView.classList.add('hidden');
-    chatView.classList.remove('flex');
-    sidebarListsContainer.style.opacity = '0.3'; // Dim channels when not in chat
+    calendarView.classList.remove('hidden'); calendarView.classList.add('flex');
+    chatView.classList.add('hidden'); chatView.classList.remove('flex');
+    
+    sidebarListsContainer.classList.add('hidden');
+    sidebarCalendarContainer.classList.remove('hidden');
+    sidebarCalendarContainer.classList.add('flex');
     
     navCalendarBtn.className = 'flex-1 bg-primary text-on-primary py-2 rounded font-bold text-sm shadow-sm transition-all flex justify-center items-center gap-1';
     navChatBtn.className = 'flex-1 text-on-primary/70 hover:text-on-primary py-2 rounded font-bold text-sm transition-all flex justify-center items-center gap-1';
     
-    // Fetch events when switching
     socket.emit('get events');
 });
 
@@ -623,6 +625,7 @@ function renderCalendar() {
     
     // Plot events
     plotEvents();
+    updateUpcomingEvents();
 }
 
 function plotEvents() {
@@ -773,3 +776,30 @@ window.deleteEvent = function(eventId) {
         document.getElementById('eventDetailsModal').classList.add('hidden');
     }
 };
+function updateUpcomingEvents() {
+    const list = document.getElementById('upcoming-events-list');
+    if(!list) return;
+    list.innerHTML = '';
+    
+    const today = new Date();
+    const todayEvents = currentEvents.filter(evt => {
+        const evtDate = new Date(evt.start_time);
+        return evtDate.getDate() === today.getDate() && 
+               evtDate.getMonth() === today.getMonth() && 
+               evtDate.getFullYear() === today.getFullYear();
+    }).sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+
+    if (todayEvents.length === 0) {
+        list.innerHTML = '<p class="px-2 italic opacity-70 text-sm">No events today.</p>';
+        return;
+    }
+
+    todayEvents.forEach(evt => {
+        const timeString = new Date(evt.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const div = document.createElement('div');
+        div.className = "bg-primary/20 p-3 rounded-lg border border-primary/30 cursor-pointer hover:bg-primary/30 transition-colors shadow-sm";
+        div.innerHTML = `<div class="font-bold text-on-primary text-sm truncate">${evt.title}</div><div class="text-xs text-on-primary/80 flex items-center gap-1 mt-1"><span class="material-symbols-outlined text-[14px]">schedule</span> ${timeString}</div>`;
+        div.addEventListener('click', () => openEventDetails(evt));
+        list.appendChild(div);
+    });
+}
