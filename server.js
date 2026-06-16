@@ -1,14 +1,36 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { Pool } = require('pg'); // Changed from sqlite3 to pg
+const { Pool } = require('pg');
+const cors = require('cors'); // NEW: Import CORS
+
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
 
-app.use(express.static('public'));
-app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/index.html');
+// NEW: Enable CORS for Express API routes (Allows React on port 5173 to fetch data)
+app.use(cors({
+    origin: '*', // For local development, allow all origins
+    methods: ['GET', 'POST']
+}));
+
+// NEW: Enable CORS for Socket.io (Allows React to connect to WebSockets)
+const io = new Server(server, {
+    cors: {
+        origin: '*', 
+        methods: ["GET", "POST"]
+    }
+});
+
+// REMOVED: app.use(express.static('public'));
+// REMOVED: app.get('/', ... res.sendFile...);
+
+// NEW: A simple Health Check API route so we know the backend is alive
+app.get('/api/health', (req, res) => {
+    res.json({ 
+        status: 'online', 
+        message: 'Comms Pro Headless API & WebSocket Server is running',
+        timestamp: new Date()
+    });
 });
 
 // Configure your Postgres Connection Pool
@@ -16,9 +38,6 @@ const pool = new Pool({
     host: 'localhost',
     port: 5432,
     database: 'commspro',
-    // Uncomment and fill these if your local Postgres setup requires credentials:
-    // user: 'your_username',
-    // password: 'your_password',
 });
 
 pool.connect((err, client, release) => {
@@ -29,7 +48,7 @@ pool.connect((err, client, release) => {
     release();
 });
 
-// Initialize Schema with Postgres specific constraints and JSONB types
+// Initialize Schema
 async function initializeDatabase() {
     try {
         await pool.query(`
@@ -90,13 +109,14 @@ async function initializeDatabase() {
 
 initializeDatabase();
 
+// --- SOCKET.IO LOGIC (100% Untouched) ---
+
 io.on('connection', (socket) => {
     socket.on('login', (data) => {
         socket.username = data.username;
         socket.role = data.role;
         socket.join(data.username); 
 
-        // ON CONFLICT replaces SQLite's INSERT OR IGNORE
         pool.query("INSERT INTO users (username, role) VALUES ($1, $2) ON CONFLICT (username) DO NOTHING", [data.username, data.role], () => {
             pool.query("SELECT username FROM users", [], (err, res) => {
                 if (!err) io.emit('all users list', res.rows.map(r => r.username));
@@ -303,7 +323,6 @@ io.on('connection', (socket) => {
 
     socket.on('search messages', (query) => {
         const searchQuery = `%${query}%`;
-        // ILIKE handles case-insensitive search in Postgres natively
         pool.query("SELECT * FROM messages WHERE text ILIKE $1 AND is_deleted = 0 ORDER BY timestamp DESC LIMIT 20", [searchQuery], (err, res) => {
             if (!err) {
                 const results = res.rows.map(formatMessageRow).filter(msg => !msg.deleted_for.includes(socket.username));
@@ -381,7 +400,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('get events', () => {
-        // Postgres native json_agg for constructing arrays
         const query = `
             SELECT e.*, 
                    COALESCE(
@@ -394,7 +412,6 @@ io.on('connection', (socket) => {
         `;
         pool.query(query, [socket.username, socket.username], (err, res) => {
             if (!err && res) {
-                // Ensure front-end receives stringified JSON matching original SQLite output
                 const events = res.rows.map(e => ({
                     ...e,
                     attendees: typeof e.attendees === 'string' ? e.attendees : JSON.stringify(e.attendees || [])
@@ -484,10 +501,8 @@ io.on('connection', (socket) => {
     });
 });
 
-// Helper parsing function to protect UI side from structural alterations due to database switch
 function formatMessageRow(row) {
     let rawTimestamp = row.timestamp;
-    // Postgres Date object to UTC string expected format fallback
     if (rawTimestamp instanceof Date) {
         rawTimestamp = rawTimestamp.toISOString().replace('T', ' ').substring(0, 19);
     }
