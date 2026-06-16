@@ -1,40 +1,71 @@
 import { useState, useEffect } from 'react';
 import socket from './socket';
+import ChatView from './components/ChatView';
+import Sidebar from './components/Sidebar';
+import CalendarView from './components/CalendarView';
 
-// Placeholder components (we will build these out fully next)
-const LoginScreen = ({ onLogin }) => (
-  <div className="flex h-screen items-center justify-center bg-background">
-    <button onClick={() => onLogin('Sushanth', 'admin')} className="bg-primary text-white p-4 rounded font-bold hover:bg-primary/90 transition-colors shadow-md">
-      Quick Login as Admin
-    </button>
-  </div>
-);
+// 1. The Login Screen Component
+const LoginScreen = ({ onLogin }) => {
+  const [username, setUsername] = useState('');
+  const [role, setRole] = useState('user');
 
-const Sidebar = ({ setView }) => (
-  <div className="w-64 bg-sidebar-bg text-white flex flex-col p-4">
-    <h1 className="text-xl font-bold mb-8">Comms Pro</h1>
-    <button onClick={() => setView('chat')} className="mb-2 bg-primary/20 p-2 rounded text-sm font-bold text-left hover:bg-primary/40 transition-colors">💬 Chat</button>
-    <button onClick={() => setView('calendar')} className="bg-primary/20 p-2 rounded text-sm font-bold text-left hover:bg-primary/40 transition-colors">📅 Calendar</button>
-  </div>
-);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (username.trim()) onLogin(username.trim(), role);
+  };
 
-const ChatView = () => <div className="flex-1 bg-background p-6 text-on-surface">Chat UI goes here</div>;
-const CalendarView = () => <div className="flex-1 bg-surface-container-lowest p-6 text-on-surface">Calendar UI goes here</div>;
+  return (
+    <div className="flex h-screen items-center justify-center bg-background p-4">
+      <div className="bg-surface-container-lowest p-8 rounded-xl shadow-lg w-full max-w-md border border-border-subtle relative">
+        <div className="text-center mb-6">
+          <div className="w-12 h-12 bg-primary-container/10 text-primary rounded-full flex items-center justify-center mx-auto mb-4"><span className="text-2xl">🔒</span></div>
+          <h2 className="text-2xl font-bold mb-2 text-on-surface">Comms Pro</h2>
+          <p className="text-on-surface-variant text-sm">Sign in to your workspace.</p>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input type="text" placeholder="Enter your full name..." value={username} onChange={(e) => setUsername(e.target.value)} className="w-full p-3 border border-border-subtle rounded-lg bg-surface-container-low focus:border-primary outline-none transition-colors" autoComplete="off" />
+          <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full p-3 border border-border-subtle rounded-lg bg-surface-container-low focus:border-primary outline-none transition-colors">
+            <option value="user">Standard User</option>
+            <option value="admin">Project Admin</option>
+            <option value="central">Central Admin</option>
+          </select>
+          <button type="submit" className="w-full bg-primary text-white p-3 rounded-lg hover:bg-primary/90 transition-colors font-bold shadow-sm mt-2">Join</button>
+        </form>
+      </div>
+    </div>
+  );
+};
 
+
+// 2. The Main App Wrapper
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState(null);
   const [currentView, setCurrentView] = useState('chat');
+  const [currentRoom, setCurrentRoom] = useState('General');
+  
+  const [channels, setChannels] = useState(['General']);
+  const [dms, setDms] = useState([]);
 
   useEffect(() => {
-    // Listen for global socket events here
     socket.on('login success', (data) => {
       setIsLoggedIn(true);
-      console.log("Logged in! Rooms:", data);
+      if (data.customChannels) {
+        setChannels(['General', ...data.customChannels]);
+      }
+      if (data.dmRooms) {
+        setDms(data.dmRooms);
+      }
+    });
+
+    // Listen for newly created channels while logged in
+    socket.on('new custom channel', (channelName) => {
+      setChannels(prev => prev.includes(channelName) ? prev : [...prev, channelName]);
     });
 
     return () => {
       socket.off('login success');
+      socket.off('new custom channel');
     };
   }, []);
 
@@ -49,9 +80,22 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen font-sans">
-      <Sidebar setView={setCurrentView} />
-      {currentView === 'chat' ? <ChatView /> : <CalendarView />}
+    <div className="flex h-screen font-sans overflow-hidden bg-background">
+      <Sidebar 
+        setView={setCurrentView} 
+        activeView={currentView}
+        currentRoom={currentRoom}
+        setCurrentRoom={setCurrentRoom}
+        channels={channels}
+        dms={dms}
+        currentUser={user}
+      />
+      
+      {currentView === 'chat' ? (
+        <ChatView currentRoom={currentRoom} currentUser={user} />
+      ) : (
+        <CalendarView currentUser={user} />
+      )}
     </div>
   );
 }
